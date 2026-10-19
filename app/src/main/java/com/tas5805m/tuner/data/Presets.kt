@@ -86,6 +86,15 @@ object FactoryPresets {
         eq("Treble boost", listOf(0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6)),
         eq("Malam (lembut)", listOf(-3, -2, -1, 0, 0, 0, 0, 0, 0, -1, -2, -3, -4, -5, -6)),
         eq("Kecilkan boomy", listOf(-4, -4, -3, -2, -2, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0)),
+        // Sinematik: bass impact + dialog jelas + high terkendali
+        eq("Movie", listOf(5, 5, 4, 3, 2, 1, 0, 1, 2, 2, 1, 0, 0, 1, 1)),
+        // Kesan lebar (EQ only — bukan HRTF/crossfeed sejati)
+        eq("Spatial", listOf(1, 1, 0, 0, -1, -2, -2, -1, 0, 1, 2, 2, 3, 3, 2)),
+        // Ilusi bass dalam lewat angkat 50–125 Hz (bukan generator harmonik PBE)
+        eq("Psycho Bass", listOf(4, 5, 6, 5, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0)),
+        eq("Rock", listOf(5, 4, 3, 1, 0, -1, -2, -1, 0, 1, 2, 3, 4, 4, 3)),
+        eq("Pop", listOf(2, 2, 1, 0, 0, 1, 2, 2, 1, 0, 0, 1, 2, 3, 2)),
+        eq("Jazz", listOf(3, 2, 1, 1, 0, 0, 1, 2, 2, 1, 0, 0, 1, 2, 2)),
     )
 }
 
