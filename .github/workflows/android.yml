@@ -4,13 +4,13 @@ on:
   push:
     branches: [main, master]
     tags: ['v*']
-    paths: ['android/**', '.github/workflows/android.yml']
+    paths-ignore: ['**.md']
   pull_request:
-    paths: ['android/**']
+    paths-ignore: ['**.md']
   workflow_dispatch:
 
 permissions:
-  contents: write   # perlu untuk membuat GitHub Release saat tag v*
+  contents: write   # dibutuhkan untuk upload artifact + GitHub Release saat tag v*
 
 concurrency:
   group: android-${{ github.ref }}
@@ -19,25 +19,25 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: android
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      # Runner ubuntu-latest sudah membawa Android SDK; cukup terima lisensi & pastikan platform 34.
-      - name: Siapkan Android SDK
-        run: |
-          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$SDKM" --licenses > /dev/null || true
-          "$SDKM" "platforms;android-34" "build-tools;34.0.0" > /dev/null || true
+      # v3 default-install 'tools' yang sudah dihapus Google → gagal
+      # "Failed to find package 'tools'". v4 hanya install package yang diminta.
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
 
-      - uses: gradle/actions/setup-gradle@v4
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
@@ -50,6 +50,7 @@ jobs:
             V="1.0.${GITHUB_RUN_NUMBER}"
           fi
           echo "name=$V" >> "$GITHUB_OUTPUT"
+          echo "Versi APK: $V (code=${{ github.run_number }})"
 
       - name: Siapkan keystore (opsional)
         env:
@@ -58,9 +59,9 @@ jobs:
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
             echo "KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
-            echo "Keystore release ditemukan -> APK release ditandatangani dengan key Anda."
+            echo "Keystore release ditemukan → APK release ditandatangani dengan key Anda."
           else
-            echo "Tanpa keystore -> APK release ditandatangani debug key (tetap bisa di-install)."
+            echo "Tanpa keystore → APK release ditandatangani debug key (tetap bisa di-install)."
           fi
 
       - name: Build debug + release
@@ -69,25 +70,34 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: >
-          gradle --no-daemon --stacktrace assembleDebug assembleRelease
+          gradle --no-daemon --stacktrace
+          assembleDebug assembleRelease
           -PappVersionName=${{ steps.ver.outputs.name }}
           -PappVersionCode=${{ github.run_number }}
 
       - name: Rapikan nama APK
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/release/app-release.apk "dist/TAS5805M-Tuner-${{ steps.ver.outputs.name }}.apk"
-          cp app/build/outputs/apk/debug/app-debug.apk "dist/TAS5805M-Tuner-${{ steps.ver.outputs.name }}-debug.apk"
+          cp app/build/outputs/apk/release/app-release.apk \
+            "dist/TAS5805M-Tuner-${{ steps.ver.outputs.name }}.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk \
+            "dist/TAS5805M-Tuner-${{ steps.ver.outputs.name }}-debug.apk"
+          ls -lh dist/
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
           name: TAS5805M-Tuner-apk
-          path: android/dist/*.apk
+          path: dist/*.apk
           if-no-files-found: error
+          retention-days: 30
 
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: android/dist/*.apk
+          files: dist/*.apk
           generate_release_notes: true
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
