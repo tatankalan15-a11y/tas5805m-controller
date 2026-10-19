@@ -4,9 +4,9 @@ on:
   push:
     branches: [main, master]
     tags: ['v*']
-    paths-ignore: ["**.md"]
+    paths: ['android/**', '.github/workflows/android.yml']
   pull_request:
-    paths-ignore: ['**.md']
+    paths: ['android/**']
   workflow_dispatch:
 
 permissions:
@@ -19,6 +19,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
     steps:
       - uses: actions/checkout@v4
 
@@ -27,7 +30,12 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
+      # Runner ubuntu-latest sudah membawa Android SDK; cukup terima lisensi & pastikan platform 34.
+      - name: Siapkan Android SDK
+        run: |
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" "platforms;android-34" "build-tools;34.0.0" > /dev/null || true
 
       - uses: gradle/actions/setup-gradle@v4
         with:
@@ -74,12 +82,12 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: TAS5805M-Tuner-apk
-          path: dist/*.apk
+          path: android/dist/*.apk
           if-no-files-found: error
 
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.apk
+          files: android/dist/*.apk
           generate_release_notes: true
