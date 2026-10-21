@@ -26,6 +26,9 @@ enum class AmpState(val cmd: String, val label: String) {
 }
 
 const val EQ_BANDS = 15
+
+/** Mode 2.1: band 0..2 (20/32/50 Hz) = slot biquad BQ1..BQ3 yang dipakai crossover HPF/LPF. */
+const val XOVER_BANDS = 3
 const val EQ_MIN = -15
 const val EQ_MAX = 15
 val EQ_FREQS = intArrayOf(20, 32, 50, 80, 125, 200, 315, 500, 800, 1250, 2000, 3150, 5000, 8000, 16000)
@@ -79,15 +82,22 @@ data class TunerState(
     val amp: AmpState = AmpState.PLAY,
     val mix: List<Float> = listOf(1f, 0f, 0f, 1f), // ll lr rl rr
     val eq: EqState = EqState(),
-    val faults: Map<String, Int> = emptyMap(),
+    val faults: Map<String, Int> = emptyMap(),    // chip 1 (satelit)
+    val faults2: Map<String, Int> = emptyMap(),   // chip 2 (sub), hanya 2-chip
     val faultHistory: List<FaultEvent> = emptyList(),
     val levelL: Int = -1200,   // deci-dB
     val levelR: Int = -1200,
     val peakL: Int = -1200,
     val peakR: Int = -1200,
+    val level2L: Int = -1200,  // meter chip 2 / sub (hanya 2-chip, firmware v3.1)
+    val level2R: Int = -1200,
+    val peak2L: Int = -1200,
+    val peak2R: Int = -1200,
+    val hasLvl2: Boolean = false,
     val hasExt: Boolean = false, // firmware v2 (eqband/eqdump/lvl)
     val hasV3: Boolean = false,  // firmware v3 (readback DAC/mod/clip, simpan NVS, info)
-    val dac: String? = null,     // "btl" | "pbtl"
+    val dac: String? = null,     // "btl" | "pbtl" (chip 1)
+    val dac2: String? = null,    // chip 2 (sub)
     val modMode: String? = null, // "bd" | "1spw" | "hybrid"
     val modFreq: String? = null, // "768k" ...
     val modBd: String? = null,   // "175k" ...
@@ -98,11 +108,18 @@ data class TunerState(
     val saved: Boolean? = null,
     val eqpL: Int? = null,
     val eqpR: Int? = null,
+    val eqp2L: Int? = null,      // profil chip 2 (mode 2-chip)
+    val eqp2R: Int? = null,
     val synced: Boolean = false,
     val rttMs: Long = -1,
 ) {
     val gainDb: Float get() = -gainCode * 0.5f
-    fun faultActive(key: String): Boolean = (faults[key] ?: 0) != 0
+
+    /** Di mode 2.1 EQ tidak boleh dimatikan, band 0..2 dicadangkan, mixer/profil diatur firmware. */
+    val locked21: Boolean get() = mode.isTwoOne
+    fun fault1(key: String): Boolean = (faults[key] ?: 0) != 0
+    fun fault2(key: String): Boolean = (faults2[key] ?: 0) != 0
+    fun faultActive(key: String): Boolean = fault1(key) || fault2(key)
     val anyFault: Boolean get() = FAULT_DEFS.any { faultActive(it.key) }
 }
 

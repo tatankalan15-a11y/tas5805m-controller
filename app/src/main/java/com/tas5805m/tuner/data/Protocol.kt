@@ -5,18 +5,22 @@ sealed interface Rx {
     data class Mode(val mode: Int, val xover: Int, val master: Int, val sat: Int, val sub: Int) : Rx
     data class State(val gain: Int, val amp: String, val eq: Boolean, val mix: List<Float>) : Rx
     data class Fault(val values: Map<String, Int>) : Rx
+    data class Fault2(val values: Map<String, Int>) : Rx   // chip 2 (sub)
     data class Eq(val channel: Char, val gains: List<Int>) : Rx
     data class EqMode(val raw: Int) : Rx
     data class Level(val l: Int, val r: Int) : Rx
+    data class Level2(val l: Int, val r: Int) : Rx
     data class Caps(val items: Set<String>) : Rx
     data class Ok(val what: String) : Rx
     data class Err(val what: String) : Rx
     data class Dac(val mode: String) : Rx
+    data class Dac2(val mode: String) : Rx   // chip 2 (sub)
     data class Mod(val mode: String, val freq: String, val bd: String) : Rx
     data class Clip(val gain: Int, val ml: Int, val mr: Int) : Rx
     data class Info(val values: Map<String, String>) : Rx
     data class Saved(val saved: Boolean) : Rx
     data class EqProfile(val l: Int, val r: Int) : Rx
+    data class EqProfile2(val l: Int, val r: Int) : Rx   // chip 2 (sub)
     data object Pong : Rx
     data class Other(val text: String) : Rx
 }
@@ -73,6 +77,15 @@ object Protocol {
                     if (gains.size == EQ_BANDS) Rx.Eq(ch, gains) else Rx.Other(line)
                 }
                 "EQM" -> Rx.EqMode(rest.firstOrNull()?.toIntOrNull() ?: 6)
+                "FAULT2" -> {
+                    val m = kv(rest)
+                    Rx.Fault2(m.mapNotNull { (k, v) -> num(v)?.let { k to it } }.toMap())
+                }
+                "DAC2" -> Rx.Dac2(kv(rest)["mode"] ?: "btl")
+                "EQP2" -> {
+                    val m = kv(rest)
+                    Rx.EqProfile2(num(m["l"]) ?: 0, num(m["r"]) ?: 0)
+                }
                 "EQP" -> {
                     val m = kv(rest)
                     Rx.EqProfile(num(m["l"]) ?: 0, num(m["r"]) ?: 0)
@@ -91,6 +104,10 @@ object Protocol {
                 "LVL" -> {
                     val m = kv(rest)
                     Rx.Level(num(m["l"]) ?: -1200, num(m["r"]) ?: -1200)
+                }
+                "LVL2" -> {
+                    val m = kv(rest)
+                    Rx.Level2(num(m["l"]) ?: -1200, num(m["r"]) ?: -1200)
                 }
                 "CAPS" -> Rx.Caps(rest.toSet())
                 "OK" -> Rx.Ok(rest.joinToString(" "))
