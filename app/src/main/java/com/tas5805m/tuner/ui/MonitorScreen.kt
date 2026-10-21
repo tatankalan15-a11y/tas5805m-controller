@@ -20,6 +20,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.tas5805m.tuner.TunerViewModel
+import com.tas5805m.tuner.data.AudioMode
 import com.tas5805m.tuner.data.FAULT_DEFS
 import com.tas5805m.tuner.data.TunerState
 import java.text.SimpleDateFormat
@@ -28,7 +29,8 @@ import java.util.Locale
 
 @Composable
 fun MonitorScreen(s: TunerState, vm: TunerViewModel) {
-    val clipping = s.levelL > -10 || s.levelR > -10
+    val twoChip = s.mode == AudioMode.TWO_CHIP_21 && s.hasLvl2
+    val clipping = s.levelL > -10 || s.levelR > -10 || (twoChip && (s.level2L > -10 || s.level2R > -10))
 
     SectionCard(
         "Level meter",
@@ -47,8 +49,29 @@ fun MonitorScreen(s: TunerState, vm: TunerViewModel) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        LevelBar("L", s.levelL, s.peakL)
-        LevelBar("R", s.levelR, s.peakR)
+        when {
+            s.mode == AudioMode.ONE_CHIP_21 -> {
+                LevelBar("Satelit (L)", s.levelL, s.peakL)
+                LevelBar("Sub (R)", s.levelR, s.peakR)
+            }
+            s.mode == AudioMode.TWO_CHIP_21 -> {
+                LevelBar("Sat L", s.levelL, s.peakL)
+                LevelBar("Sat R", s.levelR, s.peakR)
+                if (twoChip) {
+                    LevelBar("Sub", maxOf(s.level2L, s.level2R), maxOf(s.peak2L, s.peak2R))
+                } else {
+                    Text(
+                        "Meter sub (chip 0x2E) butuh firmware v3.1 env 2-chip.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            else -> {
+                LevelBar("L", s.levelL, s.peakL)
+                LevelBar("R", s.levelR, s.peakR)
+            }
+        }
         Text(
             "Meter dibaca dari DSP TAS5805M (setelah EQ/mixer), diperbarui ±6×/detik selama tab ini terbuka.",
             style = MaterialTheme.typography.labelSmall,
@@ -66,26 +89,13 @@ fun MonitorScreen(s: TunerState, vm: TunerViewModel) {
             )
         },
     ) {
-        FAULT_DEFS.chunked(2).forEach { pair ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                pair.forEach { d ->
-                    val on = s.faultActive(d.key)
-                    val c = if (!on) OkGreen else if (d.critical) BadRed else WarnAmber
-                    Row(
-                        Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                            .padding(horizontal = 10.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Column(Modifier.size(10.dp).background(c, CircleShape)) {}
-                        Text(d.label, style = MaterialTheme.typography.labelMedium)
-                    }
-                }
-                if (pair.size == 1) Column(Modifier.weight(1f)) {}
-            }
+        if (s.hasLvl2) {
+            Text("Satelit (chip 1)", style = MaterialTheme.typography.labelLarge)
+            FaultGrid { s.fault1(it) }
+            Text("Subwoofer (chip 2)", style = MaterialTheme.typography.labelLarge)
+            FaultGrid { s.fault2(it) }
+        } else {
+            FaultGrid { s.fault1(it) }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { vm.readFaults() }) { Text("Baca fault") }
@@ -107,7 +117,10 @@ fun MonitorScreen(s: TunerState, vm: TunerViewModel) {
         } else {
             val fmt = SimpleDateFormat("HH:mm:ss", Locale.US)
             s.faultHistory.asReversed().forEach { e ->
-                val labels = e.keys.mapNotNull { k -> FAULT_DEFS.firstOrNull { it.key == k }?.label }
+                val labels = e.keys.mapNotNull { k ->
+                    val d = FAULT_DEFS.firstOrNull { it.key == k.removeSuffix("@2") }
+                    d?.let { if (k.endsWith("@2")) it.label + " (sub)" else it.label }
+                }
                 Text("${fmt.format(Date(e.time))}  ·  ${labels.joinToString(", ")}", style = MaterialTheme.typography.bodySmall)
             }
         }
@@ -134,4 +147,29 @@ private fun InfoLine(label: String, value: String) {
         Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
         Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
     }
+}
+
+@Composable
+private fun FaultGrid(active: (String) -> Boolean) {
+        FAULT_DEFS.chunked(2).forEach { pair ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                pair.forEach { d ->
+                    val on = active(d.key)
+                    val c = if (!on) OkGreen else if (d.critical) BadRed else WarnAmber
+                    Row(
+                        Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Column(Modifier.size(10.dp).background(c, CircleShape)) {}
+                        Text(d.label, style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+                if (pair.size == 1) Column(Modifier.weight(1f)) {}
+            }
+        }
 }

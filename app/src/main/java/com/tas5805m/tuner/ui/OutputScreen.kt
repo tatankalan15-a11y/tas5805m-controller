@@ -50,13 +50,16 @@ fun OutputScreen(s: TunerState, vm: TunerViewModel) {
             OutlinedButton(onClick = { vm.reapplyMode() }) { Text("Terapkan ulang crossover") }
             if (s.eqpL != null && s.eqpR != null) {
                 Text(
-                    "Profil filter aktif di chip: L=${profileName(s.eqpL)} · R=${profileName(s.eqpR)}",
+                    if (s.mode == AudioMode.TWO_CHIP_21 && s.eqp2L != null && s.eqp2R != null)
+                        "Chip 1 (satelit): L=${profileName(s.eqpL)} · R=${profileName(s.eqpR)}\nChip 2 (sub): L=${profileName(s.eqp2L)} · R=${profileName(s.eqp2R)}"
+                    else
+                        "Profil filter aktif di chip: L=${profileName(s.eqpL)} · R=${profileName(s.eqpR)}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
             Text(
-                "Profil crossover dan EQ 15 band sama-sama memakai biquad DSP. Bila suara berubah aneh setelah mengatur EQ, terapkan ulang crossover.",
+                "Crossover memakai biquad band EQ 20/32/50 Hz. Di mode 2.1 band itu dikunci agar tidak tertimpa EQ; tombol di atas menulis ulang filter bila perlu.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -87,17 +90,17 @@ fun OutputScreen(s: TunerState, vm: TunerViewModel) {
         for (i in 0 until 4) {
             LabeledSlider(
                 names[i], "%.2f".format(s.mix[i]), s.mix[i], 0f..2f,
-                enabled = true,
+                enabled = !s.locked21,
             ) { vm.setMixer(i, it) }
         }
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            AssistChip(onClick = { vm.setMixerAll(listOf(1f, 0f, 0f, 1f)) }, label = { Text("Stereo") })
-            AssistChip(onClick = { vm.setMixerAll(listOf(0.5f, 0.5f, 0.5f, 0.5f)) }, label = { Text("Mono") })
-            AssistChip(onClick = { vm.setMixerAll(listOf(0f, 1f, 1f, 0f)) }, label = { Text("Tukar L/R") })
-            AssistChip(onClick = { vm.setMixerAll(listOf(1f, 1f, 0f, 0f)) }, label = { Text("Kiri saja") })
-            AssistChip(onClick = { vm.setMixerAll(listOf(0f, 0f, 1f, 1f)) }, label = { Text("Kanan saja") })
+            AssistChip(onClick = { vm.setMixerAll(listOf(1f, 0f, 0f, 1f)) }, enabled = !s.locked21, label = { Text("Stereo") })
+            AssistChip(onClick = { vm.setMixerAll(listOf(0.5f, 0.5f, 0.5f, 0.5f)) }, enabled = !s.locked21, label = { Text("Mono") })
+            AssistChip(onClick = { vm.setMixerAll(listOf(0f, 1f, 1f, 0f)) }, enabled = !s.locked21, label = { Text("Tukar L/R") })
+            AssistChip(onClick = { vm.setMixerAll(listOf(1f, 1f, 0f, 0f)) }, enabled = !s.locked21, label = { Text("Kiri saja") })
+            AssistChip(onClick = { vm.setMixerAll(listOf(0f, 0f, 1f, 1f)) }, enabled = !s.locked21, label = { Text("Kanan saja") })
         }
-        if (s.hasV3) {
+        if (s.hasV3 && !s.locked21) {
             Text("Mode mixer (bawaan chip)", style = MaterialTheme.typography.labelLarge)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("stereo" to "Stereo", "inv" to "Inverse", "mono" to "Mono", "left" to "Left", "right" to "Right").forEach { (k, t) ->
@@ -106,7 +109,7 @@ fun OutputScreen(s: TunerState, vm: TunerViewModel) {
             }
         }
         Text(
-            if (s.mode.isTwoOne) "Di mode 2.1, mixer diatur otomatis oleh level satelit/sub. Perubahan manual akan tertimpa saat level atau mode diubah."
+            if (s.mode.isTwoOne) "Di mode 2.1 mixer dikunci: routing satelit/sub diatur firmware lewat level satelit/sub. Ganti ke mode Stereo bila ingin mengubah mixer manual."
             else "Nilai 1,00 = unity. Maksimum 2,00 (+6 dB) — hati-hati clipping.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

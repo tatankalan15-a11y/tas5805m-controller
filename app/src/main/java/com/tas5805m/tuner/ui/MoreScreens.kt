@@ -289,12 +289,22 @@ private fun DacPage(s: TunerState, vm: TunerViewModel) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        val subOnly = s.mode == AudioMode.TWO_CHIP_21 && s.hasLvl2
+        val dacCur = if (subOnly) s.dac2 else s.dac
+        if (subOnly) {
+            Text(
+                "Mode 2-chip: pilihan ini hanya berlaku untuk chip 2 (subwoofer). Chip 1 (satelit) tidak diubah" +
+                    (s.dac?.let { " — saat ini ${it.uppercase()}" } ?: "") + ".",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(selected = s.dac == "btl", onClick = { confirm = "Set topologi ke BTL (stereo)?" to "btl" }, label = { Text("BTL") })
-            FilterChip(selected = s.dac == "pbtl", onClick = { confirm = "Set topologi ke PBTL (paralel)? Pastikan speaker terhubung paralel." to "pbtl" }, label = { Text("PBTL") })
+            FilterChip(selected = dacCur == "btl", onClick = { confirm = "Set topologi ke BTL (stereo)?" to "btl" }, label = { Text("BTL") })
+            FilterChip(selected = dacCur == "pbtl", onClick = { confirm = "Set topologi ke PBTL (paralel)? Pastikan speaker terhubung paralel." to "pbtl" }, label = { Text("PBTL") })
         }
         Text(
-            if (s.dac != null) "Aktif di chip: ${s.dac!!.uppercase()}" else "Nilai aktif tidak terbaca (butuh firmware v3).",
+            if (dacCur != null) "Aktif di chip${if (subOnly) " 2 (sub)" else ""}: ${dacCur.uppercase()}" else "Nilai aktif tidak terbaca (butuh firmware v3).",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -471,7 +481,8 @@ private fun AboutPage() {
         Text(
             "Dasar: status · mode N · xover HZ · master N · satvol N · subvol N · gain N · ampstate X · eq on|off · mixer ll|lr|rl|rr G · fault · ping\n" +
                 "Ekstensi v2: caps · eqband l|r|b BAND GAIN · eqdump · lvl\n" +
-                "Lainnya diteruskan ke CLI firmware (eqm, eqp, mod, dacmode, clip, …).",
+                "Lainnya diteruskan ke CLI firmware (eqm, eqp, mod, dacmode, clip, …).\n" +
+                "Mode 2.1 (firmware v3.1): eq off, eqband 0..2, eqpset, mixer, mixmode, eqm/eqp/eq CLI → ERR … locked_in_2.1.",
             style = MaterialTheme.typography.bodySmall,
             fontFamily = FontFamily.Monospace,
         )

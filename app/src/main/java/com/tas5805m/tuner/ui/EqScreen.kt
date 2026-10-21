@@ -35,7 +35,9 @@ import com.tas5805m.tuner.TunerViewModel
 import com.tas5805m.tuner.data.EQ_BANDS
 import com.tas5805m.tuner.data.EQ_FREQS
 import com.tas5805m.tuner.data.FactoryPresets
+import com.tas5805m.tuner.data.AudioMode
 import com.tas5805m.tuner.data.TunerState
+import com.tas5805m.tuner.data.XOVER_BANDS
 import com.tas5805m.tuner.data.freqLabel
 
 @Composable
@@ -43,6 +45,7 @@ fun EqScreen(s: TunerState, vm: TunerViewModel) {
     var chIdx by rememberSaveable { mutableStateOf(0) } // 0 = L+R, 1 = L, 2 = R
     var saveDialog by remember { mutableStateOf(false) }
 
+    val locked = s.locked21
     val biamp = s.eq.biamp && s.hasExt
     val ch: Char = when {
         !biamp -> 'b'
@@ -67,22 +70,40 @@ fun EqScreen(s: TunerState, vm: TunerViewModel) {
         }
     }
 
+    if (locked) {
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+        ) {
+            Text(
+                "Mode 2.1: band 20/32/50 Hz dicadangkan untuk crossover (satelit HPF / sub LPF) dan EQ tidak bisa " +
+                    "dimatikan. Preset dan Reset hanya mengubah band 80 Hz ke atas. Ini mencegah suara bocor " +
+                    "(bass ke satelit atau treble ke sub).",
+                Modifier.padding(14.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+        }
+    }
+
     SectionCard(
         "Equalizer 15 band",
-        trailing = { Switch(checked = s.eq.enabled, onCheckedChange = { vm.setEqEnabled(it) }) },
+        trailing = { Switch(checked = s.eq.enabled || locked, enabled = !locked, onCheckedChange = { vm.setEqEnabled(it) }) },
     ) {
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(selected = !biamp, onClick = { vm.setEqBiamp(false) }, enabled = s.hasExt, label = { Text("Linked  L = R") })
-            FilterChip(selected = biamp, onClick = { vm.setEqBiamp(true) }, enabled = s.hasExt, label = { Text("Biamp  L / R terpisah") })
+            FilterChip(selected = !biamp, onClick = { vm.setEqBiamp(false) }, enabled = s.hasExt && !locked, label = { Text("Linked  L = R") })
+            FilterChip(selected = biamp, onClick = { vm.setEqBiamp(true) }, enabled = s.hasExt && !locked, label = { Text("Biamp  L / R terpisah") })
         }
         if (biamp) {
+            val names = if (s.mode == AudioMode.ONE_CHIP_21) listOf("Sat + Sub", "Satelit (L)", "Sub (R)")
+            else listOf("L + R", "L", "R")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("L + R", "L", "R").forEachIndexed { i, t ->
+                names.forEachIndexed { i, t ->
                     FilterChip(selected = chIdx == i, onClick = { chIdx = i }, label = { Text(t) })
                 }
             }
         }
-        EqCurve(shown, enabled = s.eq.enabled)
+        EqCurve(shown, enabled = s.eq.enabled || locked)
         Text(
             "Kurva adalah perkiraan visual dari gain tiap band, bukan hasil pengukuran.",
             style = MaterialTheme.typography.labelSmall,
@@ -105,7 +126,7 @@ fun EqScreen(s: TunerState, vm: TunerViewModel) {
                         value = g,
                         onChange = { vm.setEqBand(ch, i, it) },
                         modifier = Modifier.width(48.dp).height(210.dp),
-                        enabled = s.eq.enabled,
+                        enabled = s.eq.enabled && !(locked && i < XOVER_BANDS),
                     )
                     Text(freqLabel(EQ_FREQS[i]), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
