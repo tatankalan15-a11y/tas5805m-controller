@@ -20,4 +20,13 @@ Pair `TAS5805M-CTRL` di Bluetooth Android → buka aplikasi → pilih perangkat.
 Butuh **firmware v3** (zip firmware) untuk EQ per-channel, meter level, readback DAC/modulasi/clipper, status chip, dan simpan setelan. Dengan firmware bawaan, kontrol dasar tetap berfungsi.
 Protokol: lihat `PROTOCOL.md`.
 
-> Kode belum pernah dikompilasi sebelum dikemas. Bila build pertama gagal, kirim log error-nya.
+> Kode belum pernah dikompilasi sebelum dikemas (v2.2: hanya perubahan kecil di `TunerViewModel.kt` + dokumentasi). Bila build pertama gagal, kirim log error-nya.
+
+## Sinkron dengan firmware v3.1 (anti-bocor 2.1)
+Di mode 2.1 app kini: mengunci band EQ 20/32/50 Hz (slot crossover), tidak mengizinkan EQ dimatikan,
+tidak mengirim `eqm`, menonaktifkan mixer/mode mixer/profil filter, dan preset/Reset hanya mengubah band ≥ 80 Hz.
+Firmware menolak perintah tsb dengan `ERR … locked_in_2.1`. Belum dikompilasi (tidak ada toolchain Android di sini).
+
+## v2.3 — mode 2-chip
+Monitor menampilkan fault satelit (chip 1) dan sub (chip 2) terpisah · topologi DAC di mode 2-chip hanya untuk sub · profil filter ditampilkan per chip. Butuh firmware v3.3. Belum dikompilasi.
+

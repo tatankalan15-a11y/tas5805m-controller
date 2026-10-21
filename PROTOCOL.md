@@ -65,3 +65,25 @@ Disimpan: mode, xover, master, sat, sub, gain, EQ kiri/kanan, mode EQ, clipper, 
 ## Band EQ
 
 `20, 32, 50, 80, 125, 200, 315, 500, 800, 1250, 2000, 3150, 5000, 8000, 16000` Hz.
+
+## Penguncian mode 2.1 (firmware v3.1)
+Pada mode 1/2 firmware membalas `ERR <cmd> locked_in_2.1` untuk: `eq off`, `eqband` band 0..2, `eqpset`, `mixer`, `mixmode`, serta CLI `eq*`/`mixer*`. Mode 2 memakai EQ BIAMP (`EQM 14`) otomatis.
+
+## Level meter sub (firmware v3.1, hanya env 2-chip)
+`lvl2` → `LVL2 l=-250 r=-250` (deci-dB, chip 2 / sub). `CAPS` memuat token `lvl2` bila chip 2 ada. Env lain: `ERR lvl2 no_chip2`.
+
+## Perubahan v3.2
+- `fault` / `diag` kini benar-benar melaporkan fault yang terkunci (sebelumnya selalu nol).
+- `mode 1` ditolak `ERR mode no_chip2` bila hardware tidak punya chip kedua; aplikasi lalu menyegarkan state lewat `status`.
+- `EQM n` selalu dinormalisasi ke 6/7/14/15.
+- Setelan NVS menyimpan env firmware dan mode runtime secara terpisah.
+
+## Perubahan v3.3 (fokus mode 1 / 2-chip)
+| Perintah | Balasan | Keterangan |
+|---|---|---|
+| `status` / `sync` / `fault` / `diag` | `FAULT …` (chip 1) + `FAULT2 …` (chip 2, env 2-chip) | kedua chip dibaca dulu, baru dihapus. `FAULT2_ERR` bila chip 2 tidak terbaca |
+| `dacget` | `DAC mode=…` + `DAC2 mode=…` | `DAC2` = chip 2 (hanya env 2-chip) |
+| `dacset btl\|pbtl` | `DAC …` (+ `DAC2 …`) | **mode 1: hanya chip 2 (sub)**; chip 1 (satelit) tidak disentuh. Mode lain: kedua chip |
+| `eqdump` (mode 1) | `EQP l=.. r=..` (chip 1) + `EQP2 l=.. r=..` (chip 2) | chip 1 = HPF (11..20), chip 2 = LPF (1..10) |
+
+Pastikan wiring PBTL benar sebelum `dacset pbtl` di chip 2.
