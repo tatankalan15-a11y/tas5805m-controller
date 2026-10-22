@@ -119,7 +119,7 @@ class SppClient(private val scope: CoroutineScope) {
     private suspend fun writerLoop(out: OutputStream, w: Channel<Unit>) {
         try {
             for (u in w) {
-                delay(25)
+                delay(180)  // coalesce slider bursts (~6 frames)
                 val batch = synchronized(lock) {
                     val l = pending.values.toList()
                     pending.clear()
