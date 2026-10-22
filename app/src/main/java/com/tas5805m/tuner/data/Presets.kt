@@ -199,6 +199,47 @@ class Store(ctx: Context) {
         _presets.value = list
     }
 
+    /** Tambah preset baru, atau ganti yang id-nya sama. */
+    fun upsert(p: Preset) {
+        val cur = _presets.value
+        val idx = cur.indexOfFirst { it.id == p.id }
+        savePresets(if (idx >= 0) cur.toMutableList().also { it[idx] = p } else cur + p)
+    }
+
+    fun delete(id: String) {
+        savePresets(_presets.value.filter { it.id != id })
+    }
+
+    /** Ekspor preset ke teks JSON (array). */
+    fun exportJson(list: List<Preset>): String {
+        val arr = JSONArray()
+        list.filter { !it.factory }.forEach { arr.put(it.toJson()) }
+        return arr.toString(2)
+    }
+
+    /**
+     * Impor dari teks JSON (array atau satu objek). Mengembalikan jumlah preset
+     * yang diimpor, atau -1 jika format tidak valid. Preset diberi id baru agar
+     * tidak menimpa yang sudah ada.
+     */
+    fun importJson(text: String): Int {
+        return try {
+            val t = text.trim()
+            val objs: List<JSONObject> =
+                if (t.startsWith("[")) JSONArray(t).let { a -> List(a.length()) { a.getJSONObject(it) } }
+                else listOf(JSONObject(t))
+            val imported = objs.map {
+                Preset.fromJson(it).copy(
+                    id = UUID.randomUUID().toString(),
+                    factory = false,
+                    created = System.currentTimeMillis(),
+                )
+            }
+            if (imported.isNotEmpty()) savePresets(_presets.value + imported)
+            imported.size
+        } catch (_: Exception) { -1 }
+    }
+
     private fun loadSettings(): Settings {
         val t = sp.getString("theme", "SYSTEM") ?: "SYSTEM"
         return Settings(
