@@ -59,6 +59,12 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
     private var monitorJob: Job? = null
     private var autoTried = false
 
+    // Debounce & Auto-save
+    private var mixerJob: Job? = null
+    private var volumeJob: Job? = null
+    private var autoSaveJob: Job? = null
+    private val pendingMixer = FloatArray(4) { -1f }
+
     init {
         viewModelScope.launch { client.lines.collect { onLine(it) } }
         viewModelScope.launch { client.tx.collect { addLog('>', it) } }
@@ -226,7 +232,12 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
         touch("master")
         val x = v.coerceIn(0, 100)
         _ui.update { it.copy(master = x) }
-        client.send("master $x", "master")
+        volumeJob?.cancel()
+        volumeJob = viewModelScope.launch {
+            delay(100)
+            client.send("master $x", "master")
+            scheduleAutoSave()
+        }
     }
 
     fun setGainCode(v: Int) {
@@ -244,9 +255,10 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setXover(hz: Int) {
         touch("xover")
-        val x = hz.coerceIn(60, 150)
+        val x = (hz / 10 * 10).coerceIn(60, 150)
         _ui.update { it.copy(xover = x) }
         client.send("xover $x", "xover")
+        scheduleAutoSave()
     }
 
     fun reapplyMode() {
@@ -255,14 +267,26 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setSat(v: Int) {
         touch("sat")
-        _ui.update { it.copy(sat = v.coerceIn(0, 100)) }
-        client.send("satvol ${v.coerceIn(0, 100)}", "sat")
+        val vv = v.coerceIn(0, 100)
+        _ui.update { it.copy(sat = vv) }
+        volumeJob?.cancel()
+        volumeJob = viewModelScope.launch {
+            delay(100)
+            client.send("satvol $vv", "sat")
+            scheduleAutoSave()
+        }
     }
 
     fun setSub(v: Int) {
         touch("sub")
-        _ui.update { it.copy(sub = v.coerceIn(0, 100)) }
-        client.send("subvol ${v.coerceIn(0, 100)}", "sub")
+        val vv = v.coerceIn(0, 100)
+        _ui.update { it.copy(sub = vv) }
+        volumeJob?.cancel()
+        volumeJob = viewModelScope.launch {
+            delay(100)
+            client.send("subvol $vv", "sub")
+            scheduleAutoSave()
+        }
     }
 
     private fun lockedToast(what: String) {
@@ -270,16 +294,54 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setMixer(idx: Int, value: Float) {
-        if (_ui.value.locked21) { lockedToast("Mixer"); return }
+        // Mixer is open in all modes (including 2.1) for imaging / crossfeed experiments.
+        if (idx !in 0..3) return
         touch("mix")
         val v = (Math.round(value * 100f) / 100f).coerceIn(0f, 2f)
+        // Update UI immediately
         _ui.update { s -> s.copy(mix = s.mix.toMutableList().also { it[idx] = v }) }
-        client.send("mixer ${listOf("ll", "lr", "rl", "rr")[idx]} ${"%.2f".format(java.util.Locale.US, v)}", "mix$idx")
+        // Debounce send to device
+        pendingMixer[idx] = v
+        mixerJob?.cancel()
+        mixerJob = viewModelScope.launch {
+            delay(90)
+            for (i in 0..3) {
+                val p = pendingMixer[i]
+                if (p >= 0f) {
+                    client.send(
+                        "mixer ${listOf("ll", "lr", "rl", "rr")[i]} ${"%.2f".format(java.util.Locale.US, p)}",
+                        "mix$i"
+                    )
+                    pendingMixer[i] = -1f
+                }
+            }
+            scheduleAutoSave()
+        }
     }
 
     fun setMixerAll(m: List<Float>) {
-        if (_ui.value.locked21) { lockedToast("Mixer"); return }
-        for (i in 0 until 4) setMixer(i, m[i])
+        // Preset / bulk set — send immediately without per-item debounce
+        for (i in 0 until 4) {
+            val v = m.getOrElse(i) { 0f }.coerceIn(0f, 2f)
+            touch("mix")
+            _ui.update { s -> s.copy(mix = s.mix.toMutableList().also { it[i] = v }) }
+            client.send(
+                "mixer ${listOf("ll", "lr", "rl", "rr")[i]} ${"%.2f".format(java.util.Locale.US, v)}",
+                "mix$i"
+            )
+        }
+        scheduleAutoSave()
+    }
+
+    /** Auto-save ke NVS device setelah perubahan (debounce 1.5 detik) */
+    private fun scheduleAutoSave() {
+        if (!store.settings.value.autoSave) return
+        if (!_ui.value.hasV3) return
+        autoSaveJob?.cancel()
+        autoSaveJob = viewModelScope.launch {
+            delay(1500)
+            client.send("save")
+        }
     }
 
     // ───────────────────────── EQ ─────────────────────────
@@ -395,7 +457,7 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setMixerMode(name: String) {
-        if (_ui.value.locked21) { lockedToast("Mode mixer"); return }
+        // mixmode is open in all modes (including 2.1).
         if (_ui.value.hasV3) client.send("mixmode $name") else client.send("mixermode $name")
     }
 
