@@ -1,8 +1,13 @@
 package com.tas5805m.tuner.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AssistChip
@@ -10,7 +15,12 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.tas5805m.tuner.TunerViewModel
@@ -18,6 +28,7 @@ import com.tas5805m.tuner.data.AudioMode
 import com.tas5805m.tuner.data.TunerState
 import kotlin.math.roundToInt
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun OutputScreen(s: TunerState, vm: TunerViewModel) {
     if (s.mode.isTwoOne) {
@@ -64,38 +75,27 @@ fun OutputScreen(s: TunerState, vm: TunerViewModel) {
             )
         }
 
-        // ============================================================
-        // LEVEL OUTPUT + BASS BALANCE
-        // ============================================================
         SectionCard("Level output") {
             LabeledSlider("Satelit", "${s.sat}%", s.sat.toFloat(), 0f..100f) { vm.setSat(it.roundToInt()) }
             LabeledSlider("Subwoofer", "${s.sub}%", s.sub.toFloat(), 0f..100f) { vm.setSub(it.roundToInt()) }
 
-            // ----- Bass Balance (sat vs sub) -----
-            // 0 = lebih banyak satelit, 50 = seimbang, 100 = lebih banyak sub
-            val balance = ((s.sub - s.sat + 100) / 2f).coerceIn(0f, 100f)
+            val total = (s.sat + s.sub).coerceAtLeast(1)
+            val balance = s.sub.toFloat() / total
             LabeledSlider(
                 "Bass Balance",
-                when {
-                    balance < 40 -> "Lebih satelit"
-                    balance > 60 -> "Lebih sub"
-                    else -> "Seimbang"
-                } + " (${balance.roundToInt()})",
+                "Sat ${s.sat}% · Sub ${s.sub}%",
                 balance,
-                0f..100f,
-            ) { v ->
-                val center = 90
-                val delta = ((v - 50f) / 50f * 20f).roundToInt()   // ±20
-                val newSat = (center - delta).coerceIn(50, 100)
-                val newSub = (center + delta).coerceIn(50, 100)
-                vm.setSat(newSat)
-                vm.setSub(newSub)
-            }
-
+                0f..1f,
+            ) { vm.setBassBalance(it) }
+            Text(
+                "Geser ke kiri = lebih satelit · ke kanan = lebih sub. Cocok untuk menyeimbangkan Samsung + ATP3.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Text(
                 if (s.mode == AudioMode.TWO_CHIP_21) "Mode 2-chip: level = volume digital tiap chip × master."
                 else "Mode 1-chip: level diatur lewat penguat mixer (mono −6 dB × level).",
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -109,82 +109,115 @@ fun OutputScreen(s: TunerState, vm: TunerViewModel) {
         }
     }
 
-    // ============================================================
-    // MIXER MATRIX + CROSSFEED
-    // ============================================================
+    // Mode 2 (1-chip 2.1): mixer dipakai routing sat/sub — UI crossfeed dinonaktifkan.
+    // Mode 1 (2-chip): crossfeed hanya ke chip satelit (firmware). Mode 0: stereo penuh.
     SectionCard("Mixer matrix / Crossfeed") {
+        if (s.mode == AudioMode.ONE_CHIP_21) {
+            Text(
+                "Mode 2 (1-chip 2.1): crossfeed & matrix mixer dinonaktifkan. " +
+                    "Matriks dipakai firmware untuk routing satelit (L) / sub (R).",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            // amount 0..0.5 → main = 1 − amount  → 50% = mono, loudness tengah konstan
+            val crossfeed = ((s.mix.getOrElse(1) { 0f } + s.mix.getOrElse(2) { 0f }) / 2f).coerceIn(0f, 0.5f)
 
-        val crossfeed = ((s.mix.getOrElse(1) { 0f } + s.mix.getOrElse(2) { 0f }) / 2f).coerceIn(0f, 1f)
-
-        LabeledSlider(
-            "Crossfeed",
-            "${(crossfeed * 100).roundToInt()}%",
-            crossfeed,
-            0f..1f,
-        ) { amount ->
-            val main = (1f - amount * 0.25f).coerceIn(0.75f, 1f)
-            vm.setMixerAll(listOf(main, amount, amount, main))
-        }
-
-        Text(
-            "0% = stereo murni · 25% = ringan · 40% = sedang · 60%+ = kuat. Volume otomatis dikompensasi.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        // Preset cepat
-        Row(
-            Modifier
-                .horizontalScroll(rememberScrollState())
-                .padding(vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            AssistChip(onClick = { vm.setMixerAll(listOf(1f, 0f, 0f, 1f)) }, label = { Text("Stereo") })
-            AssistChip(onClick = { vm.setMixerAll(listOf(0.95f, 0.25f, 0.25f, 0.95f)) }, label = { Text("Ringan") })
-            AssistChip(onClick = { vm.setMixerAll(listOf(0.90f, 0.40f, 0.40f, 0.90f)) }, label = { Text("Sedang") })
-            AssistChip(onClick = { vm.setMixerAll(listOf(0.85f, 0.60f, 0.60f, 0.85f)) }, label = { Text("Kuat") })
-            AssistChip(onClick = { vm.setMixerAll(listOf(0.92f, 0.45f, 0.30f, 0.92f)) }, label = { Text("Asimetris") })
-            AssistChip(onClick = { vm.setMixerAll(listOf(0.5f, 0.5f, 0.5f, 0.5f)) }, label = { Text("Mono") })
-        }
-
-        // 4 slider manual
-        val names = listOf("L → L", "L → R", "R → L", "R → R")
-        for (i in 0 until 4) {
             LabeledSlider(
-                names[i],
-                "%.2f".format(s.mix.getOrElse(i) { 0f }),
-                s.mix.getOrElse(i) { 0f },
-                0f..2f,
-                enabled = true,
-            ) { vm.setMixer(i, it) }
-        }
+                "Crossfeed",
+                "${(crossfeed * 100).roundToInt()}%",
+                crossfeed,
+                0f..0.5f,
+            ) { amount ->
+                val a = amount.coerceIn(0f, 0.5f)
+                val main = 1f - a
+                vm.setMixerAll(listOf(main, a, a, main))
+            }
+            Text(
+                "0% = stereo · 25% ringan · 40% sedang · 50% = mono. " +
+                    "main = 1 − amount → volume sinyal tengah konstan. " +
+                    if (s.mode == AudioMode.TWO_CHIP_21)
+                        "Mode 1: hanya chip satelit (0x2D); sub tetap mono LPF."
+                    else
+                        "Mode stereo: matriks ke kedua channel.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
 
-        if (s.hasV3) {
-            Text("Mode mixer (bawaan chip)", style = MaterialTheme.typography.labelLarge)
+            Text("Preset (ketuk = apply · tahan = apply + save NVS)", style = MaterialTheme.typography.labelLarge)
             Row(
-                Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                Modifier
+                    .horizontalScroll(rememberScrollState())
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                data class Mx(val label: String, val m: List<Float>)
+                // main = 1 − amount, amount ≤ 0.5
                 listOf(
-                    "stereo" to "Stereo",
-                    "inv" to "Inverse",
-                    "mono" to "Mono",
-                    "left" to "Left",
-                    "right" to "Right"
-                ).forEach { (k, t) ->
-                    AssistChip(onClick = { vm.setMixerMode(k) }, label = { Text(t) })
+                    Mx("Stereo", listOf(1f, 0f, 0f, 1f)),
+                    Mx("Ringan", listOf(0.75f, 0.25f, 0.25f, 0.75f)),
+                    Mx("Sedang", listOf(0.60f, 0.40f, 0.40f, 0.60f)),
+                    Mx("Kuat", listOf(0.50f, 0.50f, 0.50f, 0.50f)),
+                    Mx("Asimetris", listOf(0.70f, 0.35f, 0.25f, 0.70f)),
+                    Mx("Mono", listOf(0.50f, 0.50f, 0.50f, 0.50f)),
+                ).forEach { p ->
+                    AssistChip(
+                        onClick = { vm.setMixerAll(p.m) },
+                        modifier = Modifier.combinedClickable(
+                            onClick = { vm.setMixerAll(p.m) },
+                            onLongClick = { vm.setMixerAllAndSave(p.m) },
+                        ),
+                        label = { Text(p.label) },
+                    )
                 }
             }
-        }
 
-        Text(
-            if (s.mode.isTwoOne)
-                "Mode 2.1: mixer terbuka untuk imaging/crossfeed. Crossover tetap dikunci."
-            else
-                "Nilai 1,00 = unity. Maksimum 2,00 (+6 dB).",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+            var showManual by remember { mutableStateOf(false) }
+            TextButton(onClick = { showManual = !showManual }, modifier = Modifier.fillMaxWidth()) {
+                Text(if (showManual) "Sembunyikan matrix manual ▲" else "Tampilkan matrix manual ▼")
+            }
+            AnimatedVisibility(visible = showManual) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    val names = listOf("L → L", "L → R", "R → L", "R → R")
+                    for (i in 0 until 4) {
+                        LabeledSlider(
+                            names[i],
+                            "%.2f".format(s.mix.getOrElse(i) { 0f }),
+                            s.mix.getOrElse(i) { 0f },
+                            0f..1f,
+                            enabled = true,
+                        ) { vm.setMixer(i, it.coerceIn(0f, 1f)) }
+                    }
+                }
+            }
+
+            if (s.hasV3 && s.mode == AudioMode.STEREO) {
+                Text("Mode mixer (bawaan chip)", style = MaterialTheme.typography.labelLarge)
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    listOf(
+                        "stereo" to "Stereo",
+                        "inv" to "Inverse",
+                        "mono" to "Mono",
+                        "left" to "Left",
+                        "right" to "Right",
+                    ).forEach { (k, t) ->
+                        AssistChip(onClick = { vm.setMixerMode(k) }, label = { Text(t) })
+                    }
+                }
+            }
+
+            Text(
+                if (s.mode == AudioMode.TWO_CHIP_21)
+                    "Mode 1 (2-chip): crossfeed → chip 0x2D saja. Crossover band 0–2 tetap dikunci."
+                else
+                    "main + cross = 1 → loudness tengah konstan. 50% = mono sempurna.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

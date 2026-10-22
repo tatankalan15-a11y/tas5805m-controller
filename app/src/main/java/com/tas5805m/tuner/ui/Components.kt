@@ -2,6 +2,7 @@ package com.tas5805m.tuner.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -28,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -248,34 +250,125 @@ fun CrossoverPlot(fc: Int, modifier: Modifier = Modifier) {
     }
 }
 
-/** Meter level horizontal. [levelDeci]/[peakDeci] dalam deci-dB (−1200..0). Rentang tampil −60..0 dB. */
+/** Meter level gaya studio.
+ *  [levelDeci]/[peakDeci] = deci-dB (−1200..0). Rentang tampil −60..0 dB.
+ *  Gradien hijau→kuning→merah, segmen, skala, peak hold.
+ *  Swipe horizontal → [onResetPeak]. */
 @Composable
-fun LevelBar(label: String, levelDeci: Int, peakDeci: Int, modifier: Modifier = Modifier) {
+fun LevelBar(
+    label: String,
+    levelDeci: Int,
+    peakDeci: Int,
+    modifier: Modifier = Modifier,
+    onResetPeak: (() -> Unit)? = null,
+) {
     val track = MaterialTheme.colorScheme.surfaceContainerHighest
-    val peakColor = MaterialTheme.colorScheme.onSurface
+    val tickColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
     fun frac(d: Int) = (((d / 10f) + 60f) / 60f).coerceIn(0f, 1f)
     val db = levelDeci / 10f
-    val color = when {
-        db > -3f -> BadRed
-        db > -12f -> WarnAmber
+    val peakDb = peakDeci / 10f
+    val clipping = db > -3f
+    val hot = db > -12f
+    val valueColor = when {
+        clipping -> BadRed
+        hot -> WarnAmber
         else -> OkGreen
     }
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(Modifier.fillMaxWidth()) {
+    Column(
+        modifier.then(
+            if (onResetPeak != null) Modifier.pointerInput(Unit) {
+                detectHorizontalDragGestures { _, _ -> onResetPeak() }
+            } else Modifier
+        ),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+            if (clipping) {
+                Text(
+                    "CLIP",
+                    color = BadRed,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(end = 6.dp),
+                )
+            }
             Text(
-                if (levelDeci <= -1190) "−∞ dB" else "%.1f dB".format(db),
+                if (levelDeci <= -1190) "−∞" else "%.1f".format(db),
                 style = MaterialTheme.typography.labelLarge,
-                color = color,
+                color = valueColor,
+                fontWeight = if (clipping) FontWeight.Bold else FontWeight.SemiBold,
+            )
+            Text(" dB", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "  · pk %.0f".format(peakDb.coerceAtLeast(-60f)),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Canvas(Modifier.fillMaxWidth().height(14.dp)) {
-            val r = CornerRadius(7.dp.toPx())
+        Canvas(Modifier.fillMaxWidth().height(28.dp)) {
+            val w = size.width
+            val h = size.height
+            val r = CornerRadius(5.dp.toPx())
+            // Track
             drawRoundRect(track, Offset.Zero, size, r)
-            val wFill = size.width * frac(levelDeci)
-            if (wFill > 1f) drawRoundRect(color, Offset.Zero, Size(wFill, size.height), r)
-            val px = size.width * frac(peakDeci)
-            drawLine(peakColor, Offset(px, 0f), Offset(px, size.height), 2.dp.toPx())
+
+            // Filled level with studio gradient (green → amber → red along the bar)
+            val wFill = w * frac(levelDeci)
+            if (wFill > 1.5f) {
+                val brush = Brush.horizontalGradient(
+                    colorStops = arrayOf(
+                        0.0f to OkGreen,
+                        0.70f to OkGreen,
+                        0.82f to WarnAmber,
+                        0.92f to WarnAmber,
+                        1.0f to BadRed,
+                    ),
+                    endX = w,
+                )
+                drawRoundRect(brush, Offset.Zero, Size(wFill, h), r)
+            }
+
+            // Segment gaps (VU-style)
+            val segments = 24
+            val gap = 1.5.dp.toPx()
+            val segW = (w - gap * (segments - 1)) / segments
+            for (i in 0 until segments) {
+                val x = i * (segW + gap) + segW
+                if (i < segments - 1) {
+                    drawRect(track.copy(alpha = 0.55f), Offset(x, 0f), Size(gap, h))
+                }
+            }
+
+            // Scale ticks: -60, -40, -20, -12, -6, -3, 0
+            for (mark in listOf(-60f, -40f, -20f, -12f, -6f, -3f, 0f)) {
+                val x = w * ((mark + 60f) / 60f)
+                val tall = mark in listOf(-20f, -12f, -6f, -3f, 0f)
+                val th = if (tall) h * 0.45f else h * 0.28f
+                drawLine(tickColor, Offset(x, h - th), Offset(x, h), 1.2.dp.toPx())
+            }
+
+            // Peak hold marker (bright line + small cap)
+            val px = w * frac(peakDeci)
+            val peakCol = if (peakDb > -3f) BadRed else Color.White
+            drawLine(peakCol, Offset(px, 0f), Offset(px, h), 2.5.dp.toPx())
+            drawRoundRect(
+                peakCol,
+                Offset(px - 2.dp.toPx(), 0f),
+                Size(4.dp.toPx(), 5.dp.toPx()),
+                CornerRadius(1.dp.toPx()),
+            )
+        }
+        // Mini scale labels
+        Row(Modifier.fillMaxWidth()) {
+            listOf("-60" to 0f, "-40" to 0.33f, "-20" to 0.67f, "-12" to 0.80f, "0" to 1f).forEach { (lab, pos) ->
+                // approximate positions via weights is hard; use fixed small labels at ends + mid
+            }
+            Text("−60", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+            Text("−40", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+            Text("−20", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+            Text("−12", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+            Text("0", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

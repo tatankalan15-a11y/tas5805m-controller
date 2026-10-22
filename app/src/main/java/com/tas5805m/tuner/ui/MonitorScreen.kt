@@ -1,17 +1,5 @@
 package com.tas5805m.tuner.ui
 
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.runtime.getValue
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.Canvas
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -42,28 +30,16 @@ import java.util.Locale
 @Composable
 fun MonitorScreen(s: TunerState, vm: TunerViewModel) {
     val twoChip = s.mode == AudioMode.TWO_CHIP_21 && s.hasLvl2
-    val clipThreshold = -30   // -3.0 dB
-    val warnThreshold = -120  // -12.0 dB
-    val anyClip = s.levelL > clipThreshold || s.levelR > clipThreshold ||
-            (twoChip && (s.level2L > clipThreshold || s.level2R > clipThreshold))
-    val anyWarn = s.levelL > warnThreshold || s.levelR > warnThreshold ||
-            (twoChip && (s.level2L > warnThreshold || s.level2R > warnThreshold))
+    val clipping = s.levelL > -30 || s.levelR > -30 || (twoChip && (s.level2L > -30 || s.level2R > -30))
 
     SectionCard(
         "Level meter",
         trailing = {
-            val statusText = when {
-                anyClip -> "CLIP !"
-                anyWarn -> "HOT"
-                s.hasExt -> "LIVE"
-                else -> "—"
-            }
-            val statusColor = when {
-                anyClip -> BadRed
-                anyWarn -> WarnAmber
-                else -> MaterialTheme.colorScheme.primary
-            }
-            Text(statusText, color = statusColor, fontWeight = FontWeight.Bold)
+            Text(
+                if (clipping) "CLIP" else if (s.hasExt) "LIVE" else "—",
+                color = if (clipping) BadRed else MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold,
+            )
         },
     ) {
         if (!s.hasExt) {
@@ -75,14 +51,14 @@ fun MonitorScreen(s: TunerState, vm: TunerViewModel) {
         }
         when {
             s.mode == AudioMode.ONE_CHIP_21 -> {
-                LevelBarImproved("Satelit (L)", s.levelL, s.peakL)
-                LevelBarImproved("Sub (R)", s.levelR, s.peakR)
+                LevelBar("Satelit (L)", s.levelL, s.peakL, onResetPeak = { vm.clearPeaks() })
+                LevelBar("Sub (R)", s.levelR, s.peakR, onResetPeak = { vm.clearPeaks() })
             }
             s.mode == AudioMode.TWO_CHIP_21 -> {
-                LevelBarImproved("Sat L", s.levelL, s.peakL)
-                LevelBarImproved("Sat R", s.levelR, s.peakR)
+                LevelBar("Sat L", s.levelL, s.peakL, onResetPeak = { vm.clearPeaks() })
+                LevelBar("Sat R", s.levelR, s.peakR, onResetPeak = { vm.clearPeaks() })
                 if (twoChip) {
-                    LevelBarImproved("Sub", maxOf(s.level2L, s.level2R), maxOf(s.peak2L, s.peak2R))
+                    LevelBar("Sub", maxOf(s.level2L, s.level2R), maxOf(s.peak2L, s.peak2R), onResetPeak = { vm.clearPeaks() })
                 } else {
                     Text(
                         "Meter sub (chip 0x2E) butuh firmware v3.1 env 2-chip.",
@@ -92,42 +68,19 @@ fun MonitorScreen(s: TunerState, vm: TunerViewModel) {
                 }
             }
             else -> {
-                LevelBarImproved("L", s.levelL, s.peakL)
-                LevelBarImproved("R", s.levelR, s.peakR)
+                LevelBar("L", s.levelL, s.peakL, onResetPeak = { vm.clearPeaks() })
+                LevelBar("R", s.levelR, s.peakR, onResetPeak = { vm.clearPeaks() })
             }
         }
-        if (anyClip) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(BadRed.copy(alpha = 0.15f))
-                    .padding(10.dp)
-            ) {
-                Text(
-                    "⚠ CLIPPING terdeteksi! Turunkan Master / Sat / Sub segera agar speaker 4Ω aman.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = BadRed,
-                    fontWeight = FontWeight.Medium,
-                )
-            }
-        } else if (anyWarn) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(WarnAmber.copy(alpha = 0.12f))
-                    .padding(10.dp)
-            ) {
-                Text(
-                    "Level mendekati clipping. Perhatikan volume agar tidak merusak speaker.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = WarnAmber,
-                )
-            }
+        if (clipping) {
+            Text(
+                "⚠ Level mendekati clipping (> −3 dB). Turunkan master/sat/sub atau naikkan analog gain (kurang sensitif).",
+                style = MaterialTheme.typography.bodySmall,
+                color = BadRed,
+            )
         }
         Text(
-            "Meter dibaca dari DSP TAS5805M (setelah EQ/mixer), diperbarui ±6×/detik.\nHijau = aman · Kuning = mendekati · Merah = clipping.",
+            "Meter dari DSP TAS5805M (setelah EQ/mixer), ±6×/detik. Geser horizontal pada bar = reset peak.",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -226,67 +179,4 @@ private fun FaultGrid(active: (String) -> Boolean) {
                 if (pair.size == 1) Column(Modifier.weight(1f)) {}
             }
         }
-}
-
-
-/**
- * Level bar visual: gradient hijau→kuning→merah, animasi, peak hold, zona clip -3 dB.
- */
-@Composable
-fun LevelBarImproved(
-    label: String,
-    levelDeci: Int,
-    peakDeci: Int,
-    modifier: Modifier = Modifier,
-) {
-    val track = MaterialTheme.colorScheme.surfaceContainerHighest
-    val peakColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-    fun frac(d: Int) = (((d / 10f) + 60f) / 60f).coerceIn(0f, 1f)
-    val db = levelDeci / 10f
-    val targetFrac = frac(levelDeci)
-    val peakFrac = frac(peakDeci)
-    val animatedFrac by animateFloatAsState(targetValue = targetFrac, animationSpec = tween(80), label = "levelAnim")
-    val color by animateColorAsState(
-        targetValue = when {
-            db > -3f -> BadRed
-            db > -12f -> WarnAmber
-            else -> OkGreen
-        },
-        animationSpec = tween(120),
-        label = "colorAnim"
-    )
-    Column(modifier.padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
-            Text(
-                if (levelDeci <= -1190) "−∞ dB" else "%.1f dB".format(db),
-                style = MaterialTheme.typography.labelLarge,
-                color = color,
-                fontWeight = if (db > -12f) FontWeight.Bold else FontWeight.Normal,
-            )
-        }
-        Canvas(Modifier.fillMaxWidth().height(18.dp).clip(RoundedCornerShape(9.dp))) {
-            val r = CornerRadius(9.dp.toPx())
-            drawRoundRect(track, Offset.Zero, size, r)
-            val fillW = size.width * animatedFrac
-            if (fillW > 1f) {
-                val brush = Brush.horizontalGradient(
-                    colorStops = arrayOf(
-                        0.0f to OkGreen,
-                        0.70f to OkGreen,
-                        0.85f to WarnAmber,
-                        1.0f to BadRed,
-                    ),
-                    endX = size.width
-                )
-                drawRoundRect(brush = brush, topLeft = Offset.Zero, size = Size(fillW, size.height), cornerRadius = r)
-            }
-            val px = size.width * peakFrac
-            if (peakFrac > 0.02f) {
-                drawLine(peakColor, Offset(px, 0f), Offset(px, size.height), 2.5.dp.toPx(), cap = StrokeCap.Round)
-            }
-            val clipX = size.width * frac(-30)
-            drawLine(BadRed.copy(alpha = 0.35f), Offset(clipX, 0f), Offset(clipX, size.height), 1.dp.toPx())
-        }
-    }
 }

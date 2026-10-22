@@ -7,7 +7,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -21,6 +23,8 @@ import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -44,9 +48,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tas5805m.tuner.TunerViewModel
+import com.tas5805m.tuner.data.AmpState
 import com.tas5805m.tuner.bt.SppClient
 
 private enum class Tab(val label: String, val icon: ImageVector) {
@@ -101,6 +107,13 @@ private fun MainScaffold(vm: TunerViewModel, snack: SnackbarHostState) {
                                 ),
                             )
                             Text(settings.lastName ?: "TAS5805M", style = MaterialTheme.typography.titleMedium)
+                            // Indikator NVS: hijau = tersimpan
+                            Text(
+                                if (s.saved == true) "● Saved" else if (s.saved == false) "○ Unsaved" else "○ —",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (s.saved == true) OkGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = if (s.saved == true) FontWeight.Bold else FontWeight.Normal,
+                            )
                         }
                         Text(
                             s.mode.title,
@@ -137,6 +150,41 @@ private fun MainScaffold(vm: TunerViewModel, snack: SnackbarHostState) {
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            // Master volume (selalu terlihat)
+            LabeledSlider(
+                "Master",
+                "${s.master}%",
+                s.master.toFloat(),
+                0f..100f,
+            ) { vm.setMaster(it.toInt()) }
+
+            // Quick actions (semua tab)
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                AssistChip(
+                    onClick = {
+                        if (s.amp == AmpState.MUTE) vm.unmutePlay() else vm.muteAll()
+                    },
+                    label = { Text(if (s.amp == AmpState.MUTE) "Unmute" else "Mute All") },
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = if (s.amp == AmpState.MUTE) BadRed.copy(alpha = 0.25f)
+                        else MaterialTheme.colorScheme.surfaceContainerHigh,
+                    ),
+                )
+                AssistChip(
+                    onClick = { vm.applySoundbar21() },
+                    label = { Text("Soundbar 2.1") },
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    ),
+                )
+                AssistChip(onClick = { vm.resetToStereoMix() }, label = { Text("Reset Stereo") })
+                AssistChip(onClick = { vm.applyCrossfeedMedium() }, label = { Text("Crossfeed Sedang") })
+                AssistChip(onClick = { vm.saveToDevice() }, label = { Text("Save NVS") })
+            }
+
             when (tab) {
                 Tab.TUNE -> TuneScreen(s, vm)
                 Tab.EQ -> EqScreen(s, vm)
