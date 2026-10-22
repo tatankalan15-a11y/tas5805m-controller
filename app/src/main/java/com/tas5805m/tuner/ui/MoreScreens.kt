@@ -331,13 +331,71 @@ private fun DacPage(s: TunerState, vm: TunerViewModel) {
         )
     }
 
-    SectionCard("Soft clipper") {
-        LabeledSlider("Gain clipper", "%.1f dB".format(clipGain / 10f), clipGain, -100f..0f) { clipGain = it.roundToInt().toFloat() }
-        LabeledSlider("Makeup kiri", "%.1f dB".format(clipL / 10f), clipL, 0f..100f) { clipL = it.roundToInt().toFloat() }
-        LabeledSlider("Makeup kanan", "%.1f dB".format(clipR / 10f), clipR, 0f..100f) { clipR = it.roundToInt().toFloat() }
-        Button(onClick = { vm.setClipper(clipGain.roundToInt(), clipL.roundToInt(), clipR.roundToInt()) }) { Text("Terapkan clipper") }
+    SectionCard("Soft Clipper / Limiter") {
         Text(
-            if (s.hasV3) "Satuan: deci-dB (−30 = −3,0 dB). Nilai slider dibaca dari chip." else "Satuan: deci-dB (−30 = −3,0 dB). Firmware dasar tidak mengirim balik nilai clipper, jadi slider bukan nilai chip saat ini.",
+            "Soft clipper membatasi puncak sinyal sebelum power stage. Sangat berguna untuk melindungi satellite 4Ω dan sub dari clipping keras.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text("Preset limiter", style = MaterialTheme.typography.labelLarge)
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            AssistChip(onClick = {
+                clipGain = 0f; clipL = 0f; clipR = 0f
+                vm.setClipper(0, 0, 0)
+            }, label = { Text("Off") })
+            AssistChip(onClick = {
+                clipGain = -15f; clipL = 15f; clipR = 15f
+                vm.setClipper(-15, 15, 15)
+            }, label = { Text("Ringan") })
+            AssistChip(onClick = {
+                clipGain = -30f; clipL = 30f; clipR = 30f
+                vm.setClipper(-30, 30, 30)
+            }, label = { Text("Sedang") })
+            AssistChip(onClick = {
+                clipGain = -60f; clipL = 40f; clipR = 40f
+                vm.setClipper(-60, 40, 40)
+            }, label = { Text("Kuat") })
+            AssistChip(onClick = {
+                clipGain = -45f; clipL = 20f; clipR = 20f
+                vm.setClipper(-45, 20, 20)
+            }, label = { Text("Protect 4Ω") })
+        }
+        LabeledSlider(
+            "Threshold (Gain clipper)",
+            "%.1f dB".format(clipGain / 10f),
+            clipGain,
+            -100f..0f
+        ) { clipGain = it.roundToInt().toFloat() }
+        LabeledSlider(
+            "Makeup kiri",
+            "%.1f dB".format(clipL / 10f),
+            clipL,
+            0f..100f
+        ) { clipL = it.roundToInt().toFloat() }
+        LabeledSlider(
+            "Makeup kanan",
+            "%.1f dB".format(clipR / 10f),
+            clipR,
+            0f..100f
+        ) { clipR = it.roundToInt().toFloat() }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = {
+                vm.setClipper(clipGain.roundToInt(), clipL.roundToInt(), clipR.roundToInt())
+            }) { Text("Terapkan") }
+            OutlinedButton(onClick = {
+                val mid = ((clipL + clipR) / 2f).roundToInt()
+                clipL = mid.toFloat(); clipR = mid.toFloat()
+                vm.setClipper(clipGain.roundToInt(), mid, mid)
+            }) { Text("Samakan L/R") }
+        }
+        Text(
+            "Threshold negatif = semakin agresif memotong puncak. Makeup = naikkan level setelah dipotong.\n" +
+                "Nilai dalam deci-dB (−30 = −3.0 dB). " +
+                if (s.hasV3) "Nilai slider dibaca dari chip. Disimpan ke NVS bila Auto-Save aktif."
+                else "Firmware dasar tidak mengirim balik nilai clipper.",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
