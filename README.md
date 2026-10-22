@@ -22,11 +22,16 @@ Protokol: lihat `PROTOCOL.md`.
 
 > Kode belum pernah dikompilasi sebelum dikemas (v2.2: hanya perubahan kecil di `TunerViewModel.kt` + dokumentasi). Bila build pertama gagal, kirim log error-nya.
 
-## Sinkron dengan firmware v3.1 (anti-bocor 2.1)
-Di mode 2.1 app kini: mengunci band EQ 20/32/50 Hz (slot crossover), tidak mengizinkan EQ dimatikan,
-tidak mengirim `eqm`, menonaktifkan mixer/mode mixer/profil filter, dan preset/Reset hanya mengubah band ≥ 80 Hz.
-Firmware menolak perintah tsb dengan `ERR … locked_in_2.1`. Belum dikompilasi (tidak ada toolchain Android di sini).
+## Sinkron dengan firmware 2.1 / 2.4
+Di mode 2.1 app:
+- Mengunci band EQ 20/32/50 Hz (slot crossover) dan menolak EQ dimatikan / eqpset.
+- **Mixer matrix & mode mixer terbuka** (untuk eksperimen imaging / crossfeed).
+- Preset/Reset hanya mengubah band ≥ 80 Hz.
+Firmware menolak perintah berbahaya dengan `ERR … locked_in_2.1`. Belum dikompilasi.
 
 ## v2.3 — mode 2-chip
-Monitor menampilkan fault satelit (chip 1) dan sub (chip 2) terpisah · topologi DAC di mode 2-chip hanya untuk sub · profil filter ditampilkan per chip. Butuh firmware v3.3. Belum dikompilasi.
+Monitor menampilkan fault satelit (chip 1) dan sub (chip 2) terpisah · topologi DAC di mode 2-chip hanya untuk sub · profil filter ditampilkan per chip. Butuh firmware v3.3+.
+
+## v2.4
+Mixer UI selalu aktif (termasuk mode 2.1). Sinkron dengan firmware 2.4. Belum dikompilasi.
 

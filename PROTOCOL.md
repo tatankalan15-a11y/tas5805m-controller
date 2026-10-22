@@ -66,8 +66,10 @@ Disimpan: mode, xover, master, sat, sub, gain, EQ kiri/kanan, mode EQ, clipper, 
 
 `20, 32, 50, 80, 125, 200, 315, 500, 800, 1250, 2000, 3150, 5000, 8000, 16000` Hz.
 
-## Penguncian mode 2.1 (firmware v3.1)
-Pada mode 1/2 firmware membalas `ERR <cmd> locked_in_2.1` untuk: `eq off`, `eqband` band 0..2, `eqpset`, `mixer`, `mixmode`, serta CLI `eq*`/`mixer*`. Mode 2 memakai EQ BIAMP (`EQM 14`) otomatis.
+## Penguncian mode 2.1 (firmware v3.1 → v3.4)
+Pada mode 1/2 firmware membalas `ERR <cmd> locked_in_2.1` untuk: `eq off`, `eqband` band 0..2, `eqpset`, serta CLI `eq*` (bentuk baca seperti `eqm`/`eqp` tetap boleh).  
+**Mixer matrix (`mixer ll|lr|rl|rr`) dan `mixmode` terbuka** di semua mode (termasuk 2.1) sejak v3.4, agar bisa eksperimen imaging / crossfeed.  
+Mode 2 memakai EQ BIAMP (`EQM 14`) otomatis. Band 0..2 (20/32/50 Hz) = biquad BQ1..BQ3 yang dipakai profil crossover.
 
 ## Level meter sub (firmware v3.1, hanya env 2-chip)
 `lvl2` → `LVL2 l=-250 r=-250` (deci-dB, chip 2 / sub). `CAPS` memuat token `lvl2` bila chip 2 ada. Env lain: `ERR lvl2 no_chip2`.
@@ -87,3 +89,7 @@ Pada mode 1/2 firmware membalas `ERR <cmd> locked_in_2.1` untuk: `eq off`, `eqba
 | `eqdump` (mode 1) | `EQP l=.. r=..` (chip 1) + `EQP2 l=.. r=..` (chip 2) | chip 1 = HPF (11..20), chip 2 = LPF (1..10) |
 
 Pastikan wiring PBTL benar sebelum `dacset pbtl` di chip 2.
+
+## Perubahan v3.4 / app v2.4
+- Mixer matrix dan `mixmode` dibuka di mode 2.1 (UI app selalu aktif).
+- File patch eksternal dihapus di sisi firmware; logika 2.1 terintegrasi di source.
