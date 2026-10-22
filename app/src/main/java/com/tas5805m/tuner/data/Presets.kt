@@ -70,14 +70,52 @@ data class Preset(
     }
 }
 
-/** Preset EQ bawaan. Urutan band: 20,32,50,80,125,200,315,500,800,1.25k,2k,3.15k,5k,8k,16k */
+/** Preset EQ bawaan + Profile lengkap (Movie / Music / Night) + Crossfeed */
 object FactoryPresets {
+
     private fun eq(name: String, g: List<Int>) = Preset(
         id = "factory_" + name.lowercase().replace(' ', '_'),
         name = name, eqL = g, eqR = g, eqOnly = true, factory = true, created = 0L,
     )
 
+    /** Profile lengkap (bukan eqOnly) → termasuk mixer, sat/sub, xover */
+    private fun full(
+        name: String,
+        eq: List<Int>,
+        mix: List<Float>,
+        sat: Int = 90,
+        sub: Int = 90,
+        xover: Int = 150,
+        master: Int = 90,
+    ) = Preset(
+        id = "factory_" + name.lowercase().replace(' ', '_').replace("/", "_"),
+        name = name,
+        mode = 1,                       // default 2-chip 2.1
+        master = master,
+        gainCode = 18,
+        xover = xover,
+        sat = sat,
+        sub = sub,
+        eqL = eq,
+        eqR = eq,
+        eqEnabled = true,
+        eqBiamp = false,
+        mix = mix,
+        eqOnly = false,
+        factory = true,
+        created = 0L,
+    )
+
+    // Crossfeed values (sudah dikompensasi)
+    private val MIX_STEREO     = listOf(1.00f, 0.00f, 0.00f, 1.00f)
+    private val MIX_RINGAN     = listOf(0.95f, 0.25f, 0.25f, 0.95f)
+    private val MIX_SEDANG     = listOf(0.90f, 0.40f, 0.40f, 0.90f)
+    private val MIX_KUAT       = listOf(0.85f, 0.60f, 0.60f, 0.85f)
+    private val MIX_ASIMETRIS  = listOf(0.92f, 0.45f, 0.30f, 0.92f)
+
     val all: List<Preset> = listOf(
+
+        // ---------- EQ only (lama) ----------
         eq("Flat", List(EQ_BANDS) { 0 }),
         eq("Bass boost", listOf(6, 6, 5, 4, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0)),
         eq("Vokal", listOf(-3, -3, -2, -1, 0, 1, 2, 3, 3, 2, 1, 0, -1, -1, -2)),
@@ -86,15 +124,42 @@ object FactoryPresets {
         eq("Treble boost", listOf(0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6)),
         eq("Malam (lembut)", listOf(-3, -2, -1, 0, 0, 0, 0, 0, 0, -1, -2, -3, -4, -5, -6)),
         eq("Kecilkan boomy", listOf(-4, -4, -3, -2, -2, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0)),
-        // Sinematik: bass impact + dialog jelas + high terkendali
-        eq("Movie", listOf(5, 5, 4, 3, 2, 1, 0, 1, 2, 2, 1, 0, 0, 1, 1)),
-        // Kesan lebar (EQ only — bukan HRTF/crossfeed sejati)
         eq("Spatial", listOf(1, 1, 0, 0, -1, -2, -2, -1, 0, 1, 2, 2, 3, 3, 2)),
-        // Ilusi bass dalam lewat angkat 50–125 Hz (bukan generator harmonik PBE)
         eq("Psycho Bass", listOf(4, 5, 6, 5, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0)),
         eq("Rock", listOf(5, 4, 3, 1, 0, -1, -2, -1, 0, 1, 2, 3, 4, 4, 3)),
         eq("Pop", listOf(2, 2, 1, 0, 0, 1, 2, 2, 1, 0, 0, 1, 2, 3, 2)),
         eq("Jazz", listOf(3, 2, 1, 1, 0, 0, 1, 2, 2, 1, 0, 0, 1, 2, 2)),
+
+        // ---------- Profile lengkap (Movie / Music / Night) ----------
+        // Movie: bass impact + dialog jelas + crossfeed sedang
+        full(
+            name = "Movie",
+            eq = listOf(5, 5, 4, 3, 2, 1, 0, 1, 2, 2, 1, 0, 0, 1, 1),
+            mix = MIX_SEDANG,
+            sat = 88, sub = 95, xover = 120, master = 92
+        ),
+
+        // Music: balance natural + crossfeed ringan
+        full(
+            name = "Music",
+            eq = listOf(2, 2, 1, 0, 0, 1, 2, 2, 1, 0, 0, 1, 2, 3, 2),
+            mix = MIX_RINGAN,
+            sat = 92, sub = 88, xover = 140, master = 90
+        ),
+
+        // Night: volume lebih rendah, sub dikurangi, crossfeed sedang, high dipotong
+        full(
+            name = "Night",
+            eq = listOf(-3, -2, -1, 0, 0, 0, 0, 0, 0, -1, -2, -3, -4, -5, -6),
+            mix = MIX_SEDANG,
+            sat = 80, sub = 70, xover = 150, master = 70
+        ),
+
+        // ---------- Crossfeed only (bisa dipakai di mode stereo maupun 2.1) ----------
+        full(name = "Crossfeed Ringan", eq = List(EQ_BANDS) { 0 }, mix = MIX_RINGAN),
+        full(name = "Crossfeed Sedang", eq = List(EQ_BANDS) { 0 }, mix = MIX_SEDANG),
+        full(name = "Crossfeed Kuat", eq = List(EQ_BANDS) { 0 }, mix = MIX_KUAT),
+        full(name = "Crossfeed Asimetris", eq = List(EQ_BANDS) { 0 }, mix = MIX_ASIMETRIS),
     )
 }
 
@@ -105,6 +170,7 @@ data class Settings(
     val dynamicColor: Boolean = false,
     val autoReconnect: Boolean = true,
     val keepScreenOn: Boolean = false,
+    val autoSave: Boolean = true,          // NEW: auto save ke device setelah perubahan
     val lastAddress: String? = null,
     val lastName: String? = null,
 )
@@ -118,73 +184,45 @@ class Store(ctx: Context) {
     private val _settings = MutableStateFlow(loadSettings())
     val settings: StateFlow<Settings> = _settings
 
-    private fun loadPresets(): List<Preset> = try {
-        val a = JSONArray(sp.getString("presets", "[]"))
-        List(a.length()) { Preset.fromJson(a.getJSONObject(it)) }
-    } catch (e: Exception) {
-        emptyList()
+    private fun loadPresets(): List<Preset> {
+        val raw = sp.getString("presets", null) ?: return emptyList()
+        return try {
+            val arr = JSONArray(raw)
+            List(arr.length()) { Preset.fromJson(arr.getJSONObject(it)) }
+        } catch (_: Exception) { emptyList() }
     }
 
-    private fun savePresets(list: List<Preset>) {
-        val a = JSONArray()
-        list.forEach { a.put(it.toJson()) }
-        sp.edit().putString("presets", a.toString()).apply()
+    fun savePresets(list: List<Preset>) {
+        val arr = JSONArray()
+        list.filter { !it.factory }.forEach { arr.put(it.toJson()) }
+        sp.edit().putString("presets", arr.toString()).apply()
         _presets.value = list
     }
 
-    fun upsert(p: Preset) {
-        val cur = _presets.value
-        savePresets(if (cur.any { it.id == p.id }) cur.map { if (it.id == p.id) p else it } else cur + p)
+    private fun loadSettings(): Settings {
+        val t = sp.getString("theme", "SYSTEM") ?: "SYSTEM"
+        return Settings(
+            theme = try { ThemeMode.valueOf(t) } catch (_: Exception) { ThemeMode.SYSTEM },
+            dynamicColor = sp.getBoolean("dynamic", false),
+            autoReconnect = sp.getBoolean("autoReconnect", true),
+            keepScreenOn = sp.getBoolean("keepScreenOn", false),
+            autoSave = sp.getBoolean("autoSave", true),
+            lastAddress = sp.getString("lastAddress", null),
+            lastName = sp.getString("lastName", null),
+        )
     }
 
-    fun delete(id: String) = savePresets(_presets.value.filterNot { it.id == id })
-
-    fun exportJson(list: List<Preset>): String {
-        val a = JSONArray()
-        list.forEach { a.put(it.toJson()) }
-        return JSONObject().put("app", "tas5805m-tuner").put("version", 1).put("presets", a).toString(2)
-    }
-
-    /** @return jumlah preset yang berhasil diimpor, atau -1 jika format salah */
-    fun importJson(text: String): Int = try {
-        val t = text.trim()
-        val arr: JSONArray = when {
-            t.startsWith("[") -> JSONArray(t)
-            else -> {
-                val o = JSONObject(t)
-                o.optJSONArray("presets") ?: JSONArray().put(o)
-            }
-        }
-        var n = 0
-        for (i in 0 until arr.length()) {
-            val p = Preset.fromJson(arr.getJSONObject(i)).copy(id = UUID.randomUUID().toString(), factory = false)
-            upsert(p)
-            n++
-        }
-        n
-    } catch (e: Exception) {
-        -1
-    }
-
-    private fun loadSettings() = Settings(
-        theme = runCatching { ThemeMode.valueOf(sp.getString("theme", "SYSTEM")!!) }.getOrDefault(ThemeMode.SYSTEM),
-        dynamicColor = sp.getBoolean("dynamic", false),
-        autoReconnect = sp.getBoolean("autoReconnect", true),
-        keepScreenOn = sp.getBoolean("keepScreen", false),
-        lastAddress = sp.getString("lastAddress", null),
-        lastName = sp.getString("lastName", null),
-    )
-
-    fun updateSettings(f: (Settings) -> Settings) {
-        val s = f(_settings.value)
+    fun updateSettings(block: (Settings) -> Settings) {
+        val ns = block(_settings.value)
         sp.edit()
-            .putString("theme", s.theme.name)
-            .putBoolean("dynamic", s.dynamicColor)
-            .putBoolean("autoReconnect", s.autoReconnect)
-            .putBoolean("keepScreen", s.keepScreenOn)
-            .putString("lastAddress", s.lastAddress)
-            .putString("lastName", s.lastName)
+            .putString("theme", ns.theme.name)
+            .putBoolean("dynamic", ns.dynamicColor)
+            .putBoolean("autoReconnect", ns.autoReconnect)
+            .putBoolean("keepScreenOn", ns.keepScreenOn)
+            .putBoolean("autoSave", ns.autoSave)
+            .putString("lastAddress", ns.lastAddress)
+            .putString("lastName", ns.lastName)
             .apply()
-        _settings.value = s
+        _settings.value = ns
     }
 }
