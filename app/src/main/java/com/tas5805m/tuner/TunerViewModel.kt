@@ -23,6 +23,7 @@ import com.tas5805m.tuner.data.Rx
 import com.tas5805m.tuner.data.Settings
 import com.tas5805m.tuner.data.Store
 import com.tas5805m.tuner.data.TunerState
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -58,12 +59,6 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
     private var pingSentAt = 0L
     private var monitorJob: Job? = null
     private var autoTried = false
-
-    // Debounce & Auto-save
-    private var mixerJob: Job? = null
-    private var volumeJob: Job? = null
-    private var autoSaveJob: Job? = null
-    private val pendingMixer = FloatArray(4) { -1f }
 
     init {
         viewModelScope.launch { client.lines.collect { onLine(it) } }
@@ -230,15 +225,10 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setMaster(v: Int) {
         touch("master")
-        val x = v.coerceIn(0, 100)
-        _ui.update { it.copy(master = x) }
-        volumeJob?.cancel()
-        volumeJob = viewModelScope.launch {
-            delay(100)
-            client.send("master $x", "master")
-            scheduleAutoSave()
-        }
+        _ui.update { it.copy(master = v.coerceIn(0, 100), saved = false) }
+        client.send("master ${v.coerceIn(0, 100)}", "master")
     }
+
 
     fun setGainCode(v: Int) {
         touch("gain")
@@ -255,10 +245,9 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setXover(hz: Int) {
         touch("xover")
-        val x = (hz / 10 * 10).coerceIn(60, 150)
+        val x = hz.coerceIn(60, 150)
         _ui.update { it.copy(xover = x) }
         client.send("xover $x", "xover")
-        scheduleAutoSave()
     }
 
     fun reapplyMode() {
@@ -267,26 +256,23 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setSat(v: Int) {
         touch("sat")
-        val vv = v.coerceIn(0, 100)
-        _ui.update { it.copy(sat = vv) }
-        volumeJob?.cancel()
-        volumeJob = viewModelScope.launch {
-            delay(100)
-            client.send("satvol $vv", "sat")
-            scheduleAutoSave()
-        }
+        _ui.update { it.copy(sat = v.coerceIn(0, 100), saved = false) }
+        client.send("satvol ${v.coerceIn(0, 100)}", "sat")
     }
 
     fun setSub(v: Int) {
         touch("sub")
-        val vv = v.coerceIn(0, 100)
-        _ui.update { it.copy(sub = vv) }
-        volumeJob?.cancel()
-        volumeJob = viewModelScope.launch {
-            delay(100)
-            client.send("subvol $vv", "sub")
-            scheduleAutoSave()
-        }
+        _ui.update { it.copy(sub = v.coerceIn(0, 100), saved = false) }
+        client.send("subvol ${v.coerceIn(0, 100)}", "sub")
+    }
+
+    /** Balance sat vs sub: 0 = full sat, 0.5 = seimbang, 1 = full sub. Master relative kept. */
+    fun setBassBalance(balance: Float) {
+        val b = balance.coerceIn(0f, 1f)
+        val sat = ((1f - b) * 100f).roundToInt().coerceIn(0, 100)
+        val sub = (b * 100f).roundToInt().coerceIn(0, 100)
+        setSat(sat)
+        setSub(sub)
     }
 
     private fun lockedToast(what: String) {
@@ -294,53 +280,58 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setMixer(idx: Int, value: Float) {
-        // Mixer is open in all modes (including 2.1) for imaging / crossfeed experiments.
-        if (idx !in 0..3) return
-        touch("mix")
-        val v = (Math.round(value * 100f) / 100f).coerceIn(0f, 2f)
-        // Update UI immediately
-        _ui.update { s -> s.copy(mix = s.mix.toMutableList().also { it[idx] = v }) }
-        // Debounce send to device
-        pendingMixer[idx] = v
-        mixerJob?.cancel()
-        mixerJob = viewModelScope.launch {
-            delay(90)
-            for (i in 0..3) {
-                val p = pendingMixer[i]
-                if (p >= 0f) {
-                    client.send(
-                        "mixer ${listOf("ll", "lr", "rl", "rr")[i]} ${"%.2f".format(java.util.Locale.US, p)}",
-                        "mix$i"
-                    )
-                    pendingMixer[i] = -1f
-                }
-            }
-            scheduleAutoSave()
+        // Mode 2 (1-chip 2.1): mixer dipakai routing sat/sub — dilarang.
+        // Mode 1: firmware menulis hanya ke chip satelit.
+        if (_ui.value.mode == AudioMode.ONE_CHIP_21) {
+            showToast("Mixer dikunci di mode 2 (1-chip 2.1)")
+            return
         }
+        touch("mix")
+        val v = (Math.round(value * 100f) / 100f).coerceIn(0f, 1f)
+        _ui.update { s -> s.copy(mix = s.mix.toMutableList().also { it[idx] = v }, saved = false) }
+        client.send("mixer ${listOf("ll", "lr", "rl", "rr")[idx]} ${"%.2f".format(java.util.Locale.US, v)}", "mix$idx")
     }
 
     fun setMixerAll(m: List<Float>) {
-        // Preset / bulk set — send immediately without per-item debounce
-        for (i in 0 until 4) {
-            val v = m.getOrElse(i) { 0f }.coerceIn(0f, 2f)
-            touch("mix")
-            _ui.update { s -> s.copy(mix = s.mix.toMutableList().also { it[i] = v }) }
-            client.send(
-                "mixer ${listOf("ll", "lr", "rl", "rr")[i]} ${"%.2f".format(java.util.Locale.US, v)}",
-                "mix$i"
-            )
+        if (_ui.value.mode == AudioMode.ONE_CHIP_21) {
+            showToast("Mixer dikunci di mode 2 (1-chip 2.1)")
+            return
         }
-        scheduleAutoSave()
+        for (i in 0 until 4) setMixer(i, m[i])
     }
 
-    /** Auto-save ke NVS device setelah perubahan (debounce 1.5 detik) */
-    private fun scheduleAutoSave() {
-        if (!store.settings.value.autoSave) return
-        if (!_ui.value.hasV3) return
-        autoSaveJob?.cancel()
-        autoSaveJob = viewModelScope.launch {
-            delay(1500)
-            client.send("save")
+    /** Apply mixer matrix then save to NVS (long-press preset). */
+    fun setMixerAllAndSave(m: List<Float>) {
+        setMixerAll(m)
+        saveToDevice()
+        showToast("Mixer diterapkan + disimpan ke NVS")
+    }
+
+    fun muteAll() {
+        setAmp(AmpState.MUTE)
+        showToast("Mute All")
+    }
+
+    fun unmutePlay() {
+        setAmp(AmpState.PLAY)
+    }
+
+    fun resetToStereoMix() {
+        setMixerAll(listOf(1f, 0f, 0f, 1f))
+        showToast("Mixer → Stereo")
+    }
+
+    fun applyCrossfeedMedium() {
+        setMixerAll(listOf(0.60f, 0.40f, 0.40f, 0.60f))
+        showToast("Crossfeed Sedang")
+    }
+
+    fun clearPeaks() {
+        _ui.update {
+            it.copy(
+                peakL = it.levelL, peakR = it.levelR,
+                peak2L = it.level2L, peak2R = it.level2R,
+            )
         }
     }
 
@@ -457,7 +448,10 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setMixerMode(name: String) {
-        // mixmode is open in all modes (including 2.1).
+        if (_ui.value.mode == AudioMode.ONE_CHIP_21) {
+            showToast("mixmode dikunci di mode 2 (1-chip 2.1)")
+            return
+        }
         if (_ui.value.hasV3) client.send("mixmode $name") else client.send("mixermode $name")
     }
 
@@ -466,8 +460,15 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
         if (_ui.value.hasV3) client.send("eqpset $ch $n")
     }
 
-    fun saveToDevice() { client.send("save") }
-    fun eraseSaved() { client.send("erase") }
+    fun saveToDevice() {
+        client.send("save")
+        // Optimistically mark saved; firmware replies SAVED 1
+        _ui.update { it.copy(saved = true) }
+    }
+    fun eraseSaved() {
+        client.send("erase")
+        _ui.update { it.copy(saved = false) }
+    }
     fun rebootDevice() { client.send("reboot") }
 
     fun raw(cmd: String) {
@@ -510,7 +511,8 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
             setMaster(p.master)
             if (m.isTwoOne) { setSat(p.sat); setSub(p.sub) }
             setGainCode(p.gainCode)
-            if (m == AudioMode.STEREO) setMixerAll(p.mix)
+            // Mixer terbuka di semua mode (termasuk 2.1) sejak firmware 2.4
+            setMixerAll(p.mix)
         }
         // Mode 2.1: jangan kirim `eqm` (firmware menjaga BIAMP/EQ-on); band 0..2 dilewati di applyEqCurve
         if (ext && !target.isTwoOne) {
@@ -524,6 +526,17 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
         applyEqCurve(p.eqL, if (_ui.value.eq.biamp || (!p.eqOnly && p.eqBiamp)) p.eqR else p.eqL)
         showToast("Preset \"${p.name}\" diterapkan")
         viewModelScope.launch { delay(900); client.send("status"); client.send("eqdump") }
+    }
+
+    /** Satu ketuk: mode 2-chip + xover 150 + crossfeed sedang + balance sat/sub untuk Samsung+ATP3. */
+    fun applySoundbar21() {
+        applyPreset(com.tas5805m.tuner.data.FactoryPresets.soundbar21)
+        // Pastikan mixer crossfeed terkirim (applyPreset sudah setMixerAll)
+        viewModelScope.launch {
+            delay(400)
+            client.send("save")
+            _ui.update { it.copy(saved = true) }
+        }
     }
 
     // ───────────────────────── util ─────────────────────────
