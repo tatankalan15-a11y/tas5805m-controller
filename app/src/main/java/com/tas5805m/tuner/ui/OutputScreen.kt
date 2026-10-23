@@ -24,7 +24,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.tas5805m.tuner.TunerViewModel
-import com.tas5805m.tuner.bassBalanceOf
 import com.tas5805m.tuner.data.AudioMode
 import com.tas5805m.tuner.data.TunerState
 import kotlin.math.roundToInt
@@ -80,7 +79,8 @@ fun OutputScreen(s: TunerState, vm: TunerViewModel) {
             LabeledSlider("Satelit", "${s.sat}%", s.sat.toFloat(), 0f..100f) { vm.setSat(it.roundToInt()) }
             LabeledSlider("Subwoofer", "${s.sub}%", s.sub.toFloat(), 0f..100f) { vm.setSub(it.roundToInt()) }
 
-            val balance = bassBalanceOf(s.sat, s.sub)
+            val total = (s.sat + s.sub).coerceAtLeast(1)
+            val balance = s.sub.toFloat() / total
             LabeledSlider(
                 "Bass Balance",
                 "Sat ${s.sat}% · Sub ${s.sub}%",
