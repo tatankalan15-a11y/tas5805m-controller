@@ -266,15 +266,11 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
         client.send("subvol ${v.coerceIn(0, 100)}", "sub")
     }
 
-    /**
-     * Balance sat vs sub: 0 = hanya sat, 0.5 = seimbang (keduanya 100%), 1 = hanya sub.
-     * Sisi yang lebih besar selalu 100% sehingga total volume tidak turun di tengah.
-     * Kebalikannya ada di [bassBalanceOf].
-     */
+    /** Balance sat vs sub: 0 = full sat, 0.5 = seimbang, 1 = full sub. Master relative kept. */
     fun setBassBalance(balance: Float) {
         val b = balance.coerceIn(0f, 1f)
-        val sat = (200f * (1f - b)).roundToInt().coerceIn(0, 100)
-        val sub = (200f * b).roundToInt().coerceIn(0, 100)
+        val sat = ((1f - b) * 100f).roundToInt().coerceIn(0, 100)
+        val sub = (b * 100f).roundToInt().coerceIn(0, 100)
         setSat(sat)
         setSub(sub)
     }
@@ -512,11 +508,9 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
             client.send("mode ${m.code}")
             _ui.update { it.copy(mode = m) }; touch("mode")
             setXover(p.xover)
-            setMaster(p.master)
+            // Master volume & analog gain tidak diubah — tetap di tangan user
             if (m.isTwoOne) { setSat(p.sat); setSub(p.sub) }
-            setGainCode(p.gainCode)
-            // Mixer: mode 0 & 1 saja (mode 2 dikunci firmware, jadi dilewati tanpa toast)
-            if (m != AudioMode.ONE_CHIP_21) setMixerAll(p.mix)
+            setMixerAll(p.mix)
         }
         // Mode 2.1: jangan kirim `eqm` (firmware menjaga BIAMP/EQ-on); band 0..2 dilewati di applyEqCurve
         if (ext && !target.isTwoOne) {
@@ -560,6 +554,16 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Stereo + EQ deep bass bergaya JBL all-in-one (volume/gain tidak diubah). */
+    fun applyDeepBass() {
+        applyPreset(com.tas5805m.tuner.data.FactoryPresets.deepBass)
+        viewModelScope.launch {
+            delay(400)
+            client.send("save")
+            _ui.update { it.copy(saved = true) }
+        }
+    }
+
     // ───────────────────────── util ─────────────────────────
 
     fun showToast(msg: String) { _toast.value = msg }
@@ -573,11 +577,4 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
         client.disconnect()
         super.onCleared()
     }
-}
-
-/** Kebalikan [TunerViewModel.setBassBalance]: posisi slider (0..1) dari level sat/sub. */
-fun bassBalanceOf(sat: Int, sub: Int): Float = when {
-    sat <= 0 && sub <= 0 -> 0.5f
-    sat >= sub -> sub / (2f * sat)
-    else -> 1f - sat / (2f * sub)
 }
