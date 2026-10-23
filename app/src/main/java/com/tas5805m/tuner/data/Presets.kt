@@ -119,8 +119,36 @@ object FactoryPresets {
         eq = listOf(0, 0, 0, 1, 1, 0, 0, 0, 1, 2, 2, 2, 3, 3, 2),
     )
 
+    /** Indoor: kontrol bass, crossfeed sedang, high tidak agresif. */
+    val indoor = system(
+        name = "Indoor",
+        mode = 1,
+        master = 80,
+        xover = 150,
+        sat = 85,
+        sub = 58,
+        mix = listOf(0.70f, 0.30f, 0.30f, 0.70f), // crossfeed 30%
+        // sedikit potong 80–125 Hz (boomy ruangan), presence halus
+        eq = listOf(0, 0, 0, -1, -2, -1, 0, 0, 0, 1, 1, 1, 1, 1, 0),
+    )
+
+    /** Outdoor: sub + presence high, crossfeed ringan, headroom lebih. */
+    val outdoor = system(
+        name = "Outdoor",
+        mode = 1,
+        master = 90,
+        xover = 120,
+        sat = 80,
+        sub = 85,
+        mix = listOf(0.85f, 0.15f, 0.15f, 0.85f), // crossfeed 15%
+        // angkat 2–8 kHz agar jelas di keramaian; mid-bass sedikit bantu satelit
+        eq = listOf(0, 0, 0, 1, 2, 1, 0, 0, 1, 2, 3, 3, 4, 3, 2),
+    )
+
     val all: List<Preset> = listOf(
         soundbar21,
+        indoor,
+        outdoor,
         system("Soundbar Stereo", mode = 0, master = 85, mix = listOf(1f, 0f, 0f, 1f)),
         eq("Flat", List(EQ_BANDS) { 0 }),
         eq("Bass boost", listOf(6, 6, 5, 4, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0)),
