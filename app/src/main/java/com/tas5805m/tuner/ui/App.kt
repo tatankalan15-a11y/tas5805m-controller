@@ -180,6 +180,20 @@ private fun MainScaffold(vm: TunerViewModel, snack: SnackbarHostState) {
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
                     ),
                 )
+                AssistChip(
+                    onClick = { vm.applyIndoor() },
+                    label = { Text("Indoor") },
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    ),
+                )
+                AssistChip(
+                    onClick = { vm.applyOutdoor() },
+                    label = { Text("Outdoor") },
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    ),
+                )
                 AssistChip(onClick = { vm.resetToStereoMix() }, label = { Text("Reset Stereo") })
                 AssistChip(onClick = { vm.applyCrossfeedMedium() }, label = { Text("Crossfeed Sedang") })
                 AssistChip(onClick = { vm.saveToDevice() }, label = { Text("Save NVS") })
