@@ -266,11 +266,15 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
         client.send("subvol ${v.coerceIn(0, 100)}", "sub")
     }
 
-    /** Balance sat vs sub: 0 = full sat, 0.5 = seimbang, 1 = full sub. Master relative kept. */
+    /**
+     * Balance sat vs sub: 0 = hanya sat, 0.5 = seimbang (keduanya 100%), 1 = hanya sub.
+     * Sisi yang lebih besar selalu 100% sehingga total volume tidak turun di tengah.
+     * Kebalikannya ada di [bassBalanceOf].
+     */
     fun setBassBalance(balance: Float) {
         val b = balance.coerceIn(0f, 1f)
-        val sat = ((1f - b) * 100f).roundToInt().coerceIn(0, 100)
-        val sub = (b * 100f).roundToInt().coerceIn(0, 100)
+        val sat = (200f * (1f - b)).roundToInt().coerceIn(0, 100)
+        val sub = (200f * b).roundToInt().coerceIn(0, 100)
         setSat(sat)
         setSub(sub)
     }
@@ -511,8 +515,8 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
             setMaster(p.master)
             if (m.isTwoOne) { setSat(p.sat); setSub(p.sub) }
             setGainCode(p.gainCode)
-            // Mixer terbuka di semua mode (termasuk 2.1) sejak firmware 2.4
-            setMixerAll(p.mix)
+            // Mixer: mode 0 & 1 saja (mode 2 dikunci firmware, jadi dilewati tanpa toast)
+            if (m != AudioMode.ONE_CHIP_21) setMixerAll(p.mix)
         }
         // Mode 2.1: jangan kirim `eqm` (firmware menjaga BIAMP/EQ-on); band 0..2 dilewati di applyEqCurve
         if (ext && !target.isTwoOne) {
@@ -531,7 +535,24 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
     /** Satu ketuk: mode 2-chip + xover 150 + crossfeed sedang + balance sat/sub untuk Samsung+ATP3. */
     fun applySoundbar21() {
         applyPreset(com.tas5805m.tuner.data.FactoryPresets.soundbar21)
-        // Pastikan mixer crossfeed terkirim (applyPreset sudah setMixerAll)
+        viewModelScope.launch {
+            delay(400)
+            client.send("save")
+            _ui.update { it.copy(saved = true) }
+        }
+    }
+
+    fun applyIndoor() {
+        applyPreset(com.tas5805m.tuner.data.FactoryPresets.indoor)
+        viewModelScope.launch {
+            delay(400)
+            client.send("save")
+            _ui.update { it.copy(saved = true) }
+        }
+    }
+
+    fun applyOutdoor() {
+        applyPreset(com.tas5805m.tuner.data.FactoryPresets.outdoor)
         viewModelScope.launch {
             delay(400)
             client.send("save")
@@ -552,4 +573,11 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
         client.disconnect()
         super.onCleared()
     }
+}
+
+/** Kebalikan [TunerViewModel.setBassBalance]: posisi slider (0..1) dari level sat/sub. */
+fun bassBalanceOf(sat: Int, sub: Int): Float = when {
+    sat <= 0 && sub <= 0 -> 0.5f
+    sat >= sub -> sub / (2f * sat)
+    else -> 1f - sat / (2f * sub)
 }
