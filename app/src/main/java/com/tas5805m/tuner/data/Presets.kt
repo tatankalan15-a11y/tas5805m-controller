@@ -47,7 +47,7 @@ data class Preset(
         fun fromJson(o: JSONObject): Preset {
             val mixArr = o.optJSONArray("mix")
             val mix = if (mixArr != null && mixArr.length() == 4)
-                List(4) { mixArr.optDouble(it, 0.0).toFloat().coerceIn(0f, 2f) }
+                List(4) { mixArr.optDouble(it, 0.0).toFloat().coerceIn(-1f, 2f) }
             else listOf(1f, 0f, 0f, 1f)
             return Preset(
                 id = o.optString("id", UUID.randomUUID().toString()),
@@ -145,24 +145,10 @@ object FactoryPresets {
         eq = listOf(0, 0, 0, 1, 2, 1, 0, 0, 1, 2, 3, 3, 4, 3, 2),
     )
 
-    /**
-     * Stereo Deep Bass — karakter mendekati JBL all-in-one / party:
-     * low kuat, slight scoop mid, presence high. Mode 0, mixer stereo murni.
-     * Master/gain tidak diubah saat apply (lihat applyPreset).
-     */
-    val deepBass = system(
-        name = "Deep Bass",
-        mode = 0,
-        mix = listOf(1f, 0f, 0f, 1f),
-        // ~20 32 50 80 125 200 315 500 800 1.25k 2k 3.15k 5k 8k 16k
-        eq = listOf(8, 7, 6, 5, 3, 1, 0, -1, -1, 0, 1, 2, 3, 3, 2),
-    )
-
     val all: List<Preset> = listOf(
         soundbar21,
         indoor,
         outdoor,
-        deepBass,
         system("Soundbar Stereo", mode = 0, master = 85, mix = listOf(1f, 0f, 0f, 1f)),
         eq("Flat", List(EQ_BANDS) { 0 }),
         eq("Bass boost", listOf(6, 6, 5, 4, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0)),

@@ -1,12 +1,17 @@
 package com.tas5805m.tuner.data
 
-/** Tiga environment firmware (platformio.ini) = tiga mode audio. */
+/** Empat environment firmware (platformio.ini) = empat mode audio. */
 enum class AudioMode(val code: Int, val env: String, val title: String, val subtitle: String, val short: String) {
     STEREO(0, "esp32dev_stereo", "Stereo 1-chip", "1× TAS5805M · L/R full-range", "Stereo"),
     TWO_CHIP_21(1, "esp32dev_2chip_21", "2.1 · 2-chip", "0x2D satelit (HPF) + 0x2E subwoofer (LPF)", "2.1 ×2"),
-    ONE_CHIP_21(2, "esp32dev_1chip_21", "2.1 · 1-chip", "OUT L = satelit (HPF) · OUT R = sub (LPF)", "2.1 ×1");
+    ONE_CHIP_21(2, "esp32dev_1chip_21", "2.1 · 1-chip", "OUT L = satelit (HPF) · OUT R = sub (LPF)", "2.1 ×1"),
+    THREE_ONE(3, "esp32dev_2chip_31", "3.1 · 2-chip", "0x2D satelit L/R (HPF) · 0x2E: OUT L = center (HPF), OUT R = sub (LPF)", "3.1 ×2"),
+    WIRELESS(4, "esp32dev_wireless_master", "2.1 · sub wireless", "Chip 1: satelit L/R (HPF) · hingga 4 sub slave lewat ESP-NOW", "2.1 ⚡");
 
+    /** Semua mode dengan crossover (2.1 dan 3.1). */
     val isTwoOne: Boolean get() = this != STEREO
+    /** Mode dengan dua chip (2.1 ×2 dan 3.1). */
+    val isTwoChip: Boolean get() = this == TWO_CHIP_21 || this == THREE_ONE
 
     companion object {
         fun from(code: Int): AudioMode = entries.firstOrNull { it.code == code } ?: STEREO
@@ -78,6 +83,13 @@ data class TunerState(
     val master: Int = 90,
     val sat: Int = 90,
     val sub: Int = 90,
+    val ctr: Int = 85,         // level center, hanya mode 3 (firmware ≥ 2.6)
+    val subInv: Boolean = false,        // polaritas sub dibalik (firmware ≥ 2.8)
+    val wsub: WsubState? = null,        // status sub wireless (env wireless_master, firmware ≥ 2.9)
+    val standbyMin: Int = 0,            // auto-standby (menit), 0 = mati
+    val standbyActive: Boolean = false, // chip sedang di-standby-kan firmware
+    val eqC: List<Int> = List(EQ_BANDS) { 0 },   // EQ center (mode 3)
+    val eqS: List<Int> = List(EQ_BANDS) { 0 },   // EQ sub (mode 3)
     val gainCode: Int = 18,
     val amp: AmpState = AmpState.PLAY,
     val mix: List<Float> = listOf(1f, 0f, 0f, 1f), // ll lr rl rr
@@ -124,3 +136,36 @@ data class TunerState(
 }
 
 data class LogEntry(val time: Long, val dir: Char, val text: String) // dir: '>' TX, '<' RX, '!' info
+
+/** Satu slave wireless (slot 0..3). */
+data class WsubPeer(
+    val mac: String,
+    val slot: Int = 0,
+    val link: Boolean = false,
+    val fillMs: Int = 0,
+    val und: Int = 0,
+    val gap: Int = 0,
+    val rate: Int = 0,
+    val hiz: Boolean = false,
+)
+
+/** Status sub wireless — multi-sub hingga [maxPeers] (default 4).
+ *  Kompatibel firmware lama: satu `peer` saja → [peers] berisi 0..1 entri.
+ */
+data class WsubState(
+    val peers: List<WsubPeer> = emptyList(),
+    val maxPeers: Int = 4,
+    val scan: Boolean = false,
+    val found: List<String> = emptyList(),
+) {
+    /** Firmware single-peer lama / peer pertama. */
+    val peer: String? get() = peers.firstOrNull()?.mac
+    val link: Boolean get() = peers.any { it.link }
+    val fillMs: Int get() = peers.firstOrNull()?.fillMs ?: 0
+    val und: Int get() = peers.sumOf { it.und }
+    val gap: Int get() = peers.sumOf { it.gap }
+    val rate: Int get() = peers.firstOrNull { it.link }?.rate ?: peers.firstOrNull()?.rate ?: 0
+    val hiz: Boolean get() = peers.all { !it.link || it.hiz }
+    val onlineCount: Int get() = peers.count { it.link }
+    val canAdd: Boolean get() = peers.size < maxPeers
+}

@@ -2,7 +2,7 @@ package com.tas5805m.tuner.data
 
 /** Parser untuk baris-baris yang dikirim firmware lewat SPP (TAS5805M-CTRL). */
 sealed interface Rx {
-    data class Mode(val mode: Int, val xover: Int, val master: Int, val sat: Int, val sub: Int) : Rx
+    data class Mode(val mode: Int, val xover: Int, val master: Int, val sat: Int, val sub: Int, val ctr: Int = 85) : Rx
     data class State(val gain: Int, val amp: String, val eq: Boolean, val mix: List<Float>) : Rx
     data class Fault(val values: Map<String, Int>) : Rx
     data class Fault2(val values: Map<String, Int>) : Rx   // chip 2 (sub)
@@ -21,6 +21,10 @@ sealed interface Rx {
     data class Saved(val saved: Boolean) : Rx
     data class EqProfile(val l: Int, val r: Int) : Rx
     data class EqProfile2(val l: Int, val r: Int) : Rx   // chip 2 (sub)
+    data class Fx(val inv: Boolean, val stby: Int, val sb: Boolean) : Rx   // polaritas sub, auto-standby
+    data class EqC(val gains: List<Int>) : Rx   // EQ center (mode 3)
+    data class Wsub(val state: WsubState) : Rx   // sub wireless
+    data class EqS(val gains: List<Int>) : Rx   // EQ sub (mode 3)
     data object Pong : Rx
     data class Other(val text: String) : Rx
 }
@@ -55,6 +59,7 @@ object Protocol {
                         master = num(m["master"]) ?: 90,
                         sat = num(m["sat"]) ?: 90,
                         sub = num(m["sub"]) ?: 90,
+                        ctr = num(m["ctr"]) ?: 85,
                     )
                 }
                 "STATE" -> {
@@ -77,6 +82,64 @@ object Protocol {
                     if (gains.size == EQ_BANDS) Rx.Eq(ch, gains) else Rx.Other(line)
                 }
                 "EQM" -> Rx.EqMode(rest.firstOrNull()?.toIntOrNull() ?: 6)
+                "WSUB" -> {
+                    val m = kv(rest)
+                    val found = (m["found"] ?: "none").split(',').map { it.trim() }
+                        .filter { it.isNotBlank() && it != "none" }
+                    val maxP = num(m["max"]) ?: 4
+                    val scan = num(m["scan"]) == 1
+                    // Multi: peers=mac1,mac2 links=1,0 fill=.. und=.. gap=.. rate=.. hiz=..
+                    val peersCsv = m["peers"] ?: m["peer"]
+                    val peers = if (!peersCsv.isNullOrBlank() && peersCsv != "none") {
+                        val macs = peersCsv.split(',').map { it.trim() }.filter { it.isNotBlank() && it != "none" }
+                        val links = (m["links"] ?: m["link"] ?: "").split(',').map { it.trim() }
+                        val fills = (m["fill"] ?: "0").split(',').map { it.trim() }
+                        val unds = (m["und"] ?: "0").split(',').map { it.trim() }
+                        val gaps = (m["gap"] ?: "0").split(',').map { it.trim() }
+                        val rates = (m["rate"] ?: "0").split(',').map { it.trim() }
+                        val hizs = (m["hiz"] ?: "0").split(',').map { it.trim() }
+                        macs.mapIndexed { i, mac ->
+                            WsubPeer(
+                                mac = mac,
+                                slot = i,
+                                link = (links.getOrNull(i) ?: links.getOrNull(0) ?: "0") == "1",
+                                fillMs = (fills.getOrNull(i) ?: fills.getOrNull(0) ?: "0").toIntOrNull() ?: 0,
+                                und = (unds.getOrNull(i) ?: unds.getOrNull(0) ?: "0").toIntOrNull() ?: 0,
+                                gap = (gaps.getOrNull(i) ?: gaps.getOrNull(0) ?: "0").toIntOrNull() ?: 0,
+                                rate = (rates.getOrNull(i) ?: rates.getOrNull(0) ?: "0").toIntOrNull() ?: 0,
+                                hiz = (hizs.getOrNull(i) ?: hizs.getOrNull(0) ?: "0") == "1",
+                            )
+                        }
+                    } else emptyList()
+                    Rx.Wsub(WsubState(peers = peers, maxPeers = maxP, scan = scan, found = found))
+                }
+                "WSUBP" -> {
+                    // Per-peer line: WSUBP slot=0 mac=AA:.. link=1 fill=45 und=0 gap=0 rate=44100 hiz=0
+                    val m = kv(rest)
+                    val mac = m["mac"]?.takeIf { it != "none" && it.isNotBlank() }
+                    if (mac == null) Rx.Other(line)
+                    else Rx.WsubPeerLine(
+                        WsubPeer(
+                            mac = mac,
+                            slot = num(m["slot"]) ?: 0,
+                            link = num(m["link"]) == 1,
+                            fillMs = num(m["fill"]) ?: 0,
+                            und = num(m["und"]) ?: 0,
+                            gap = num(m["gap"]) ?: 0,
+                            rate = num(m["rate"]) ?: 0,
+                            hiz = num(m["hiz"]) == 1,
+                        )
+                    )
+                }
+                "FX" -> {
+                    val m = kv(rest)
+                    Rx.Fx(inv = num(m["inv"]) == 1, stby = num(m["stby"]) ?: 0, sb = num(m["sb"]) == 1)
+                }
+                "EQC", "EQS" -> {
+                    val gains = (rest.firstOrNull() ?: "").split(',').mapNotNull { it.trim().toIntOrNull() }
+                    if (gains.size != EQ_BANDS) Rx.Other(line)
+                    else if (head == "EQC") Rx.EqC(gains) else Rx.EqS(gains)
+                }
                 "FAULT2" -> {
                     val m = kv(rest)
                     Rx.Fault2(m.mapNotNull { (k, v) -> num(v)?.let { k to it } }.toMap())
