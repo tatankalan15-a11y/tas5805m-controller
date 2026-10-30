@@ -23,6 +23,7 @@ import com.tas5805m.tuner.data.Rx
 import com.tas5805m.tuner.data.Settings
 import com.tas5805m.tuner.data.Store
 import com.tas5805m.tuner.data.TunerState
+import com.tas5805m.tuner.data.WsubState
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -130,6 +131,7 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
                     master = if (fresh("master")) s.master else rx.master,
                     sat = if (fresh("sat")) s.sat else rx.sat,
                     sub = if (fresh("sub")) s.sub else rx.sub,
+                    ctr = if (fresh("ctr")) s.ctr else rx.ctr,
                     synced = true,
                 )
             }
@@ -143,6 +145,22 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
             }
             is Rx.Fault -> onFault(rx.values, 1)
             is Rx.Fault2 -> onFault(rx.values, 2)
+            is Rx.Wsub -> _ui.update { it.copy(wsub = rx.state) }
+            is Rx.WsubPeerLine -> _ui.update { s ->
+                val cur = s.wsub ?: WsubState()
+                val rest = cur.peers.filterNot { it.mac.equals(rx.peer.mac, ignoreCase = true) || it.slot == rx.peer.slot }
+                val merged = (rest + rx.peer).sortedBy { it.slot }.take(cur.maxPeers)
+                s.copy(wsub = cur.copy(peers = merged))
+            }
+            is Rx.Fx -> _ui.update { s ->
+                s.copy(
+                    subInv = if (fresh("subinv")) s.subInv else rx.inv,
+                    standbyMin = if (fresh("stby")) s.standbyMin else rx.stby,
+                    standbyActive = rx.sb,
+                )
+            }
+            is Rx.EqC -> _ui.update { s -> if (fresh("eqc", 900)) s else s.copy(eqC = rx.gains) }
+            is Rx.EqS -> _ui.update { s -> if (fresh("eqc", 900)) s else s.copy(eqS = rx.gains) }
             is Rx.Eq -> _ui.update { s ->
                 if (fresh("eq", 900)) s
                 else s.copy(eq = if (rx.channel == 'l') s.eq.copy(left = rx.gains) else s.eq.copy(right = rx.gains))
@@ -260,17 +278,88 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
         client.send("satvol ${v.coerceIn(0, 100)}", "sat")
     }
 
+    // ───────────────────── Sub wireless ─────────────────────
+
+    fun requestStatus() { client.send("status", "status") }
+
+    /** Cari slave (HELLO) ±8 dtk; hasil muncul di daftar "found". */
+    fun wsubScan() {
+        client.send("wsub_scan")
+        viewModelScope.launch { repeat(9) { delay(1000); client.send("status") } }
+    }
+
+    fun wsubPair(mac: String) {
+        client.send("wsub_pair $mac")
+        viewModelScope.launch { repeat(6) { delay(1000); client.send("status") } }
+    }
+
+    fun wsubUnpair(mac: String? = null) {
+        if (mac.isNullOrBlank()) client.send("wsub_unpair")
+        else client.send("wsub_unpair $mac")
+        viewModelScope.launch { repeat(4) { delay(800); client.send("status") } }
+    }
+
+    fun wsubUnpairAll() {
+        client.send("wsub_unpair_all")
+        // Fallback firmware lama: unpair tanpa argumen
+        client.send("wsub_unpair")
+        viewModelScope.launch { repeat(4) { delay(800); client.send("status") } }
+    }
+
+    /** Balik polaritas sub (mode 2.1 / 3.1). */
+    fun setSubInv(inv: Boolean) {
+        touch("subinv")
+        _ui.update { it.copy(subInv = inv, saved = false) }
+        client.send("subinv ${if (inv) 1 else 0}")
+    }
+
+    /** Auto-standby: 0 = mati, selain itu menit tanpa audio sebelum amp → Hi-Z. */
+    fun setStandby(min: Int) {
+        touch("stby")
+        _ui.update { it.copy(standbyMin = min.coerceIn(0, 240), saved = false) }
+        client.send("standby ${min.coerceIn(0, 240)}")
+    }
+
+    /**
+     * Dialog boost (mode 3): EQ khusus center. Band 2 kHz = +db, 1,25 kHz & 3,15 kHz = setengahnya.
+     * Satelit dan sub tidak berubah.
+     */
+    fun setDialogBoost(db: Int) {
+        val d = db.coerceIn(0, 6)
+        val half = (d + 1) / 2
+        touch("eqc")
+        _ui.update { s ->
+            val c = s.eqC.toMutableList()
+            c[9] = half; c[10] = d; c[11] = half
+            s.copy(eqC = c, saved = false)
+        }
+        client.send("eqc c 10 $d", "eqc10")
+        client.send("eqc c 9 $half", "eqc9")
+        client.send("eqc c 11 $half", "eqc11")
+    }
+
+    /** Level center (hanya mode 3). */
+    fun setCtr(v: Int) {
+        touch("ctr")
+        _ui.update { it.copy(ctr = v.coerceIn(0, 100), saved = false) }
+        client.send("ctr ${v.coerceIn(0, 100)}", "ctr")
+    }
+
     fun setSub(v: Int) {
         touch("sub")
         _ui.update { it.copy(sub = v.coerceIn(0, 100), saved = false) }
         client.send("subvol ${v.coerceIn(0, 100)}", "sub")
     }
 
-    /** Balance sat vs sub: 0 = full sat, 0.5 = seimbang, 1 = full sub. Master relative kept. */
+    /**
+     * Balance sat vs sub: 0 = hanya sat, 0.5 = seimbang (keduanya 100%), 1 = hanya sub.
+     * Sisi yang lebih besar selalu 100% sehingga total volume tidak turun di tengah.
+     * Kebalikannya ada di [bassBalanceOf].
+     */
     fun setBassBalance(balance: Float) {
         val b = balance.coerceIn(0f, 1f)
-        val sat = ((1f - b) * 100f).roundToInt().coerceIn(0, 100)
-        val sub = (b * 100f).roundToInt().coerceIn(0, 100)
+        val sat = (200f * (1f - b)).roundToInt().coerceIn(0, 100)
+        val sub = (200f * b).roundToInt().coerceIn(0, 100)
         setSat(sat)
         setSub(sub)
     }
@@ -287,7 +376,7 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         touch("mix")
-        val v = (Math.round(value * 100f) / 100f).coerceIn(0f, 1f)
+        val v = (Math.round(value * 100f) / 100f).coerceIn(-1f, 2f)   // negatif = pelebaran stereo
         _ui.update { s -> s.copy(mix = s.mix.toMutableList().also { it[idx] = v }, saved = false) }
         client.send("mixer ${listOf("ll", "lr", "rl", "rr")[idx]} ${"%.2f".format(java.util.Locale.US, v)}", "mix$idx")
     }
@@ -401,7 +490,7 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
             var tick = 0
             while (isActive) {
                 if (_ui.value.hasExt) client.send("lvl", "lvl")
-                if (_ui.value.hasLvl2 && _ui.value.mode == AudioMode.TWO_CHIP_21) client.send("lvl2", "lvl2")
+                if (_ui.value.hasLvl2 && _ui.value.mode.isTwoChip) client.send("lvl2", "lvl2")
                 if (tick % 12 == 0) client.send("status", "status")
                 if (_ui.value.hasV3 && tick % 12 == 6) client.send("info", "info")
                 tick++
@@ -434,7 +523,7 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
     fun setDac(mode: String) {
         client.send(if (_ui.value.hasV3) "dacset $mode" else "dacmode $mode")
         // Mode 2-chip: firmware menerapkannya hanya ke chip 2 (sub)
-        _ui.update { if (it.mode == AudioMode.TWO_CHIP_21 && it.hasLvl2) it.copy(dac2 = mode) else it.copy(dac = mode) }
+        _ui.update { if (it.mode.isTwoChip && it.hasLvl2) it.copy(dac2 = mode) else it.copy(dac = mode) }
     }
 
     fun setModulation(mode: String, freq: String, bd: String) {
@@ -508,9 +597,11 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
             client.send("mode ${m.code}")
             _ui.update { it.copy(mode = m) }; touch("mode")
             setXover(p.xover)
-            // Master volume & analog gain tidak diubah — tetap di tangan user
+            setMaster(p.master)
             if (m.isTwoOne) { setSat(p.sat); setSub(p.sub) }
-            setMixerAll(p.mix)
+            setGainCode(p.gainCode)
+            // Mixer: mode 0 & 1 saja (mode 2 dikunci firmware, jadi dilewati tanpa toast)
+            if (m != AudioMode.ONE_CHIP_21) setMixerAll(p.mix)
         }
         // Mode 2.1: jangan kirim `eqm` (firmware menjaga BIAMP/EQ-on); band 0..2 dilewati di applyEqCurve
         if (ext && !target.isTwoOne) {
@@ -554,16 +645,6 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Stereo + EQ deep bass bergaya JBL all-in-one (volume/gain tidak diubah). */
-    fun applyDeepBass() {
-        applyPreset(com.tas5805m.tuner.data.FactoryPresets.deepBass)
-        viewModelScope.launch {
-            delay(400)
-            client.send("save")
-            _ui.update { it.copy(saved = true) }
-        }
-    }
-
     // ───────────────────────── util ─────────────────────────
 
     fun showToast(msg: String) { _toast.value = msg }
@@ -577,4 +658,11 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
         client.disconnect()
         super.onCleared()
     }
+}
+
+/** Kebalikan [TunerViewModel.setBassBalance]: posisi slider (0..1) dari level sat/sub. */
+fun bassBalanceOf(sat: Int, sub: Int): Float = when {
+    sat <= 0 && sub <= 0 -> 0.5f
+    sat >= sub -> sub / (2f * sat)
+    else -> 1f - sat / (2f * sub)
 }
