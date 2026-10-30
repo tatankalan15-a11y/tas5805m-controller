@@ -102,6 +102,21 @@ fun TuneScreen(s: TunerState, vm: TunerViewModel) {
         )
     }
 
+    SectionCard("Auto-standby") {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(0 to "Mati", 5 to "5 mnt", 10 to "10 mnt", 30 to "30 mnt", 60 to "60 mnt").forEach { (m, t) ->
+                FilterChip(selected = s.standbyMin == m, onClick = { vm.setStandby(m) }, label = { Text(t) })
+            }
+        }
+        Text(
+            if (s.standbyActive) "Sedang standby (Hi-Z) — audio berikutnya membangunkan amp otomatis."
+            else "Bila tidak ada audio Bluetooth sebesar waktu ini, amp pindah ke Hi-Z. " +
+                "Audio berikutnya membangunkannya kembali (awal lagu bisa tertunda sepersekian detik).",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+
     if (s.hasV3) {
         SectionCard("Simpan di perangkat") {
             Text(
@@ -145,7 +160,9 @@ fun TuneScreen(s: TunerState, vm: TunerViewModel) {
             text = {
                 Text(
                     "Mode mengubah routing DSP (mixer, filter, level). Wiring dan PDN tetap ditentukan firmware env \"${m.env}\".\n\n" +
-                        if (m == AudioMode.TWO_CHIP_21) "Mode ini butuh TAS5805M kedua di alamat 0x2E dan PDN2 (GPIO25)."
+                        if (m.isTwoChip) "Mode ini butuh TAS5805M kedua di alamat 0x2E dan PDN2 (GPIO25)." +
+                            (if (m == AudioMode.THREE_ONE) " Chip 2 harus BTL (OUT L = center, OUT R = sub)." else "")
+                        else if (m == AudioMode.WIRELESS) "Butuh firmware env wireless_master dan board slave (esp32dev_sub_slave). Pasangkan di tab Output → Sub wireless."
                         else "Pastikan speaker terpasang sesuai mode ini.",
                 )
             },

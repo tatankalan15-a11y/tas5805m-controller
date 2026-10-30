@@ -169,7 +169,7 @@ fun ConnectScreen(vm: TunerViewModel, snack: SnackbarHostState) {
                 }
             }
 
-            SectionCard("3 mode firmware (env)") {
+            SectionCard("5 mode firmware (env)") {
                 AudioMode.entries.forEach {
                     Column {
                         Text("${it.title}  ·  ${it.env}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)

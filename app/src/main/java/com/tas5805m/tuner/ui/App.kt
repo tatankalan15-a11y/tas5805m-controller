@@ -194,13 +194,6 @@ private fun MainScaffold(vm: TunerViewModel, snack: SnackbarHostState) {
                         containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                     ),
                 )
-                AssistChip(
-                    onClick = { vm.applyDeepBass() },
-                    label = { Text("Deep Bass") },
-                    colors = AssistChipDefaults.assistChipColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    ),
-                )
                 AssistChip(onClick = { vm.resetToStereoMix() }, label = { Text("Reset Stereo") })
                 AssistChip(onClick = { vm.applyCrossfeedMedium() }, label = { Text("Crossfeed Sedang") })
                 AssistChip(onClick = { vm.saveToDevice() }, label = { Text("Save NVS") })

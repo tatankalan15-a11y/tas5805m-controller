@@ -95,8 +95,11 @@ fun EqScreen(s: TunerState, vm: TunerViewModel) {
             FilterChip(selected = biamp, onClick = { vm.setEqBiamp(true) }, enabled = s.hasExt && !locked, label = { Text("Biamp  L / R terpisah") })
         }
         if (biamp) {
-            val names = if (s.mode == AudioMode.ONE_CHIP_21) listOf("Sat + Sub", "Satelit (L)", "Sub (R)")
-            else listOf("L + R", "L", "R")
+            val names = when (s.mode) {
+                AudioMode.ONE_CHIP_21 -> listOf("Sat + Sub", "Satelit (L)", "Sub (R)")
+                AudioMode.THREE_ONE -> listOf("Semua satelit", "Sat L", "Sat R")
+                else -> listOf("L + R", "L", "R")
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 names.forEachIndexed { i, t ->
                     FilterChip(selected = chIdx == i, onClick = { chIdx = i }, label = { Text(t) })

@@ -29,7 +29,7 @@ import java.util.Locale
 
 @Composable
 fun MonitorScreen(s: TunerState, vm: TunerViewModel) {
-    val twoChip = s.mode == AudioMode.TWO_CHIP_21 && s.hasLvl2
+    val twoChip = s.mode.isTwoChip && s.hasLvl2
     val clipping = s.levelL > -30 || s.levelR > -30 || (twoChip && (s.level2L > -30 || s.level2R > -30))
 
     SectionCard(
@@ -54,11 +54,11 @@ fun MonitorScreen(s: TunerState, vm: TunerViewModel) {
                 LevelBar("Satelit (L)", s.levelL, s.peakL, onResetPeak = { vm.clearPeaks() })
                 LevelBar("Sub (R)", s.levelR, s.peakR, onResetPeak = { vm.clearPeaks() })
             }
-            s.mode == AudioMode.TWO_CHIP_21 -> {
+            s.mode.isTwoChip -> {
                 LevelBar("Sat L", s.levelL, s.peakL, onResetPeak = { vm.clearPeaks() })
                 LevelBar("Sat R", s.levelR, s.peakR, onResetPeak = { vm.clearPeaks() })
                 if (twoChip) {
-                    LevelBar("Sub", maxOf(s.level2L, s.level2R), maxOf(s.peak2L, s.peak2R), onResetPeak = { vm.clearPeaks() })
+                    LevelBar(if (s.mode == AudioMode.THREE_ONE) "Chip 2 (center + sub)" else "Sub", maxOf(s.level2L, s.level2R), maxOf(s.peak2L, s.peak2R), onResetPeak = { vm.clearPeaks() })
                 } else {
                     Text(
                         "Meter sub (chip 0x2E) butuh firmware v3.1 env 2-chip.",

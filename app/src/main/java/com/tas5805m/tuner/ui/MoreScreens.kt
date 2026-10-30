@@ -289,11 +289,12 @@ private fun DacPage(s: TunerState, vm: TunerViewModel) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        val subOnly = s.mode == AudioMode.TWO_CHIP_21 && s.hasLvl2
+        val subOnly = s.mode.isTwoChip && s.hasLvl2
         val dacCur = if (subOnly) s.dac2 else s.dac
         if (subOnly) {
             Text(
-                "Mode 2-chip: pilihan ini hanya berlaku untuk chip 2 (subwoofer). Chip 1 (satelit) tidak diubah" +
+                (if (s.mode == AudioMode.THREE_ONE) "Mode 3.1: pilihan ini hanya berlaku untuk chip 2 (center + sub) — chip 2 harus tetap BTL agar center dan sub sama-sama bersuara. Chip 1 (satelit) tidak diubah"
+                else "Mode 2-chip: pilihan ini hanya berlaku untuk chip 2 (subwoofer). Chip 1 (satelit) tidak diubah") +
                     (s.dac?.let { " — saat ini ${it.uppercase()}" } ?: "") + ".",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
@@ -469,7 +470,7 @@ private fun AboutPage() {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
-    SectionCard("Tiga env firmware") {
+    SectionCard("Lima env firmware") {
         AudioMode.entries.forEach {
             Column {
                 Text("${it.code} · ${it.env}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
