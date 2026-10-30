@@ -23,7 +23,8 @@ sealed interface Rx {
     data class EqProfile2(val l: Int, val r: Int) : Rx   // chip 2 (sub)
     data class Fx(val inv: Boolean, val stby: Int, val sb: Boolean) : Rx   // polaritas sub, auto-standby
     data class EqC(val gains: List<Int>) : Rx   // EQ center (mode 3)
-    data class Wsub(val state: WsubState) : Rx   // sub wireless
+    data class Wsub(val state: WsubState) : Rx   // sub wireless (multi)
+    data class WsubPeerLine(val peer: WsubPeer) : Rx  // baris WSUBP per slot
     data class EqS(val gains: List<Int>) : Rx   // EQ sub (mode 3)
     data object Pong : Rx
     data class Other(val text: String) : Rx
