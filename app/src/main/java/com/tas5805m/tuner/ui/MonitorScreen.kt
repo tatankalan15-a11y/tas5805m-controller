@@ -67,6 +67,24 @@ fun MonitorScreen(s: TunerState, vm: TunerViewModel) {
                     )
                 }
             }
+            s.mode == AudioMode.WIRELESS -> {
+                LevelBar("Sat L", s.levelL, s.peakL, onResetPeak = { vm.clearPeaks() })
+                LevelBar("Sat R", s.levelR, s.peakR, onResetPeak = { vm.clearPeaks() })
+                if (s.hasWlvl) {
+                    LevelBar("Sub wireless", s.wlevel, s.wpeak, onResetPeak = { vm.clearPeaks() })
+                    Text(
+                        "Sub wireless = sinyal mono 0–700 Hz yang dikirim ke slave (sebelum volume slave & penguat).",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    Text(
+                        "Meter sub wireless butuh firmware dengan perintah wlvl (build 2.9.4-wlvl).",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             else -> {
                 LevelBar("L", s.levelL, s.peakL, onResetPeak = { vm.clearPeaks() })
                 LevelBar("R", s.levelR, s.peakR, onResetPeak = { vm.clearPeaks() })

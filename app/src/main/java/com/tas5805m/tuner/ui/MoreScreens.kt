@@ -431,7 +431,7 @@ private fun SettingsPage(vm: TunerViewModel) {
         SwitchRow("Layar tetap menyala", "Berguna saat tuning sambil mendengarkan", st.keepScreenOn) { v -> vm.store.updateSettings { it.copy(keepScreenOn = v) } }
     }
     SectionCard("Koneksi") {
-        SwitchRow("Sambung otomatis", "Ke perangkat terakhir saat aplikasi dibuka", st.autoReconnect) { v -> vm.store.updateSettings { it.copy(autoReconnect = v) } }
+        SwitchRow("Sambung otomatis", "Saat aplikasi dibuka dan setelah koneksi terputus (maks. 8 percobaan)", st.autoReconnect) { v -> vm.store.updateSettings { it.copy(autoReconnect = v) } }
         Text(
             "Perangkat terakhir: ${st.lastName ?: "—"}",
             style = MaterialTheme.typography.bodySmall,

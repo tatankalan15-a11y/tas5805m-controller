@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -27,6 +28,7 @@ fun WsubCard(s: TunerState, vm: TunerViewModel) {
     LaunchedEffect(Unit) {
         while (true) {
             vm.requestStatus()
+            vm.requestWlat()
             delay(2000)
         }
     }
@@ -37,6 +39,21 @@ fun WsubCard(s: TunerState, vm: TunerViewModel) {
             fontWeight = FontWeight.SemiBold,
             color = if (w.link) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
         )
+        if (w.fallback) {
+            Surface(
+                color = MaterialTheme.colorScheme.errorContainer,
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    "Fallback stereo aktif: sub hilang ≥ 6 dtk, satelit sementara full-range. " +
+                        "Crossover (HPF) dipasang lagi otomatis setelah link stabil 2 dtk.",
+                    modifier = Modifier.padding(12.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                )
+            }
+        }
         if (w.peers.isEmpty()) {
             Text(
                 "Belum ada slave terpasang",
@@ -72,6 +89,28 @@ fun WsubCard(s: TunerState, vm: TunerViewModel) {
                     }
                 }
             }
+        }
+
+        if (s.hasWlat) {
+            LabeledSlider(
+                "Penyelarasan waktu sub", "%+.1f ms".format(s.wtrimMs),
+                s.wtrimMs, -20f..50f, steps = 139,
+            ) { vm.setWTrim(it) }
+            if (s.wlatSatMs > 0f && s.wlatSubMs.isNotEmpty()) {
+                val sub = s.wlatSubMs.average().toFloat()
+                Text(
+                    "Latensi: satelit %.1f ms · sub ≈ %.1f ms (selisih %+.1f ms)".format(s.wlatSatMs, sub, sub - s.wlatSatMs),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+            Text(
+                "Sub otomatis disejajarkan dengan jalur satelit. Geser untuk menyesuaikan jarak speaker " +
+                    "(positif = sub lebih lambat). Angka latensi adalah estimasi dari model dan isi buffer, bukan " +
+                    "pengukuran akustik. Jika jaringan radio ramai, buffer sub naik otomatis dan selisih bisa positif.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
 
         Row(
