@@ -2,7 +2,7 @@ package com.tas5805m.tuner.data
 
 /** Parser untuk baris-baris yang dikirim firmware lewat SPP (TAS5805M-CTRL). */
 sealed interface Rx {
-    data class Mode(val mode: Int, val xover: Int, val master: Int, val sat: Int, val sub: Int, val ctr: Int = 85) : Rx
+    data class Mode(val mode: Int, val xover: Int, val master: Int, val sat: Int, val sub: Int, val ctr: Int = 85, val ord: Int = 4) : Rx
     data class State(val gain: Int, val amp: String, val eq: Boolean, val mix: List<Float>) : Rx
     data class Fault(val values: Map<String, Int>) : Rx
     data class Fault2(val values: Map<String, Int>) : Rx   // chip 2 (sub)
@@ -10,6 +10,9 @@ sealed interface Rx {
     data class EqMode(val raw: Int) : Rx
     data class Level(val l: Int, val r: Int) : Rx
     data class Level2(val l: Int, val r: Int) : Rx
+    data class Wlat(val satMs: Float, val subMs: List<Float>, val targetMs: Int) : Rx   // latensi jalur sat/sub (ms), firmware ≥ 2.9.6
+    data class Wtrim(val ms: Float) : Rx   // trim waktu sub wireless (ms)
+    data class WLevel(val v: Int) : Rx   // level sinyal sub wireless (deci-dB), firmware ≥ 2.9.4
     data class Caps(val items: Set<String>) : Rx
     data class Ok(val what: String) : Rx
     data class Err(val what: String) : Rx
@@ -17,15 +20,17 @@ sealed interface Rx {
     data class Dac2(val mode: String) : Rx   // chip 2 (sub)
     data class Mod(val mode: String, val freq: String, val bd: String) : Rx
     data class Clip(val gain: Int, val ml: Int, val mr: Int) : Rx
+    data class Limit(val on: Boolean, val thr: Int, val mu: Int) : Rx   // Advanced limiter (db×10)
+    data class TDelay(val sat: Float, val sub: Float, val ctr: Float) : Rx
     data class Info(val values: Map<String, String>) : Rx
     data class Saved(val saved: Boolean) : Rx
     data class EqProfile(val l: Int, val r: Int) : Rx
     data class EqProfile2(val l: Int, val r: Int) : Rx   // chip 2 (sub)
     data class Fx(val inv: Boolean, val stby: Int, val sb: Boolean) : Rx   // polaritas sub, auto-standby
     data class EqC(val gains: List<Int>) : Rx   // EQ center (mode 3)
-    data class Wsub(val state: WsubState) : Rx   // sub wireless (multi)
-    data class WsubPeerLine(val peer: WsubPeer) : Rx  // baris WSUBP per slot
+    data class Wsub(val state: WsubState) : Rx   // sub wireless
     data class EqS(val gains: List<Int>) : Rx   // EQ sub (mode 3)
+    data class WsubPeerLine(val peer: WsubPeer) : Rx   // satu baris WSUBP per slave
     data object Pong : Rx
     data class Other(val text: String) : Rx
 }
@@ -61,6 +66,7 @@ object Protocol {
                         sat = num(m["sat"]) ?: 90,
                         sub = num(m["sub"]) ?: 90,
                         ctr = num(m["ctr"]) ?: 85,
+                        ord = num(m["ord"]) ?: 4,
                     )
                 }
                 "STATE" -> {
@@ -112,7 +118,7 @@ object Protocol {
                             )
                         }
                     } else emptyList()
-                    Rx.Wsub(WsubState(peers = peers, maxPeers = maxP, scan = scan, found = found))
+                    Rx.Wsub(WsubState(peers = peers, maxPeers = maxP, scan = scan, found = found, fallback = num(m["fb"]) == 1))
                 }
                 "WSUBP" -> {
                     // Per-peer line: WSUBP slot=0 mac=AA:.. link=1 fill=45 und=0 gap=0 rate=44100 hiz=0
@@ -163,6 +169,22 @@ object Protocol {
                     val m = kv(rest)
                     Rx.Clip(num(m["gain"]) ?: 0, num(m["ml"]) ?: 0, num(m["mr"]) ?: 0)
                 }
+                "LIMIT" -> {
+                    val m = kv(rest)
+                    Rx.Limit(
+                        on = (num(m["on"]) ?: 0) != 0,
+                        thr = num(m["thr"]) ?: -30,
+                        mu = num(m["mu"]) ?: 30,
+                    )
+                }
+                "TDELAY" -> {
+                    val m = kv(rest)
+                    Rx.TDelay(
+                        sat = m["sat"]?.toFloatOrNull() ?: 0f,
+                        sub = m["sub"]?.toFloatOrNull() ?: 0f,
+                        ctr = m["ctr"]?.toFloatOrNull() ?: 0f,
+                    )
+                }
                 "INFO" -> Rx.Info(kv(rest))
                 "SAVED" -> Rx.Saved((rest.firstOrNull()?.toIntOrNull() ?: 0) != 0)
                 "LVL" -> {
@@ -173,6 +195,16 @@ object Protocol {
                     val m = kv(rest)
                     Rx.Level2(num(m["l"]) ?: -1200, num(m["r"]) ?: -1200)
                 }
+                "WLVL" -> Rx.WLevel(num(kv(rest)["v"]) ?: -1200)
+                "WLAT" -> {
+                    val m = kv(rest)
+                    Rx.Wlat(
+                        satMs = m["sat"]?.toFloatOrNull() ?: 0f,
+                        subMs = (m["sub"] ?: "").split(',').mapNotNull { it.trim().toFloatOrNull() }.filter { it > 0f },
+                        targetMs = num(m["tgt"]) ?: 0,
+                    )
+                }
+                "WTRIM" -> Rx.Wtrim(kv(rest)["v"]?.toFloatOrNull() ?: 0f)
                 "CAPS" -> Rx.Caps(rest.toSet())
                 "OK" -> Rx.Ok(rest.joinToString(" "))
                 "ERR" -> Rx.Err(rest.joinToString(" "))

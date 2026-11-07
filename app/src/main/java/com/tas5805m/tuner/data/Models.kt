@@ -80,6 +80,7 @@ data class FaultEvent(val time: Long, val keys: List<String>)
 data class TunerState(
     val mode: AudioMode = AudioMode.STEREO,
     val xover: Int = 150,
+    val xoverOrder: Int = 4,   // 2=Butterworth, 4=Linkwitz-Riley (firmware ≥ 2.9.5)
     val master: Int = 90,
     val sat: Int = 90,
     val sub: Int = 90,
@@ -106,6 +107,15 @@ data class TunerState(
     val peak2L: Int = -1200,
     val peak2R: Int = -1200,
     val hasLvl2: Boolean = false,
+    val hasWlvl: Boolean = false,   // caps: wlvl (meter sub wireless, firmware ≥ 2.9.4)
+    val hasWlat: Boolean = false,   // caps: wlat + wtrim (penyelarasan sub wireless, firmware ≥ 2.9.6)
+    val wtrimMs: Float = 0f,        // trim waktu sub vs satelit (ms; positif = sub lebih lambat)
+    val wlatSatMs: Float = 0f,      // estimasi latensi jalur satelit (ms)
+    val wlatSubMs: List<Float> = emptyList(),   // estimasi latensi jalur tiap sub (ms)
+    val wlevel: Int = -1200,
+    val wpeak: Int = -1200,
+    val hasWsub: Boolean = false,   // caps: wsub (env wireless_master)
+    val capsKnown: Boolean = false, // CAPS sudah diterima (firmware v2+)
     val hasExt: Boolean = false, // firmware v2 (eqband/eqdump/lvl)
     val hasV3: Boolean = false,  // firmware v3 (readback DAC/mod/clip, simpan NVS, info)
     val dac: String? = null,     // "btl" | "pbtl" (chip 1)
@@ -116,6 +126,15 @@ data class TunerState(
     val clipGain: Int? = null,   // deci-dB
     val clipL: Int? = null,
     val clipR: Int? = null,
+    val limitOn: Boolean = false,
+    val limitThrDb10: Int = -30,
+    val limitMuDb10: Int = 30,
+    val tdelaySatMs: Float = 0f,
+    val tdelaySubMs: Float = 0f,
+    val tdelayCtrMs: Float = 0f,
+    val hasPeq: Boolean = false,      // caps: peq
+    val hasTdelay: Boolean = false,   // caps: tdelay
+    val hasLimit: Boolean = false,    // caps: limit
     val info: Map<String, String> = emptyMap(),
     val saved: Boolean? = null,
     val eqpL: Int? = null,
@@ -127,8 +146,40 @@ data class TunerState(
 ) {
     val gainDb: Float get() = -gainCode * 0.5f
 
+    /**
+     * Mode yang sesuai env firmware yang di-flash (dari caps):
+     * 2.1×2 & 3.1 butuh chip 2 (lvl2) · sub wireless butuh env master (wsub) ·
+     * 2.1×1 hanya untuk env 1-chip (tanpa chip 2 dan tanpa wsub).
+     * Caps belum ada (firmware lama) → tampilkan semua. Mode aktif selalu ikut tampil.
+     */
+    val availableModes: List<AudioMode> get() {
+        if (!capsKnown) return AudioMode.entries
+        val hasSub = hasWsub || wsub != null
+        if (hasSub) return (listOf(AudioMode.WIRELESS) + mode).distinct()   // env wireless master terkunci mode 4 (mode aktif tetap tampil)
+        return AudioMode.entries.filter {
+            it == mode || when (it) {
+                AudioMode.STEREO -> true
+                AudioMode.TWO_CHIP_21, AudioMode.THREE_ONE -> hasLvl2
+                AudioMode.WIRELESS -> hasSub
+                AudioMode.ONE_CHIP_21 -> !hasLvl2 && !hasSub
+            }
+        }
+    }
+
     /** Di mode 2.1 EQ tidak boleh dimatikan, band 0..2 dicadangkan, mixer/profil diatur firmware. */
     val locked21: Boolean get() = mode.isTwoOne
+    /** Band 13–15 (indeks 12..14) dipakai time alignment bila delay yang relevan untuk mode ini aktif. */
+    val delayBandsBusy: Boolean get() {
+        val on = 0.05f
+        return when (mode) {
+            AudioMode.TWO_CHIP_21, AudioMode.ONE_CHIP_21 -> tdelaySatMs > on || tdelaySubMs > on
+            AudioMode.THREE_ONE -> tdelaySatMs > on || tdelaySubMs > on || tdelayCtrMs > on
+            else -> tdelaySatMs > on
+        }
+    }
+    /** Rentang crossover: sub wireless dibatasi slave 60–150 Hz. */
+    val xoverMin: Int get() = if (mode == AudioMode.WIRELESS) 60 else 40
+    val xoverMax: Int get() = if (mode == AudioMode.WIRELESS) 150 else 200
     fun fault1(key: String): Boolean = (faults[key] ?: 0) != 0
     fun fault2(key: String): Boolean = (faults2[key] ?: 0) != 0
     fun faultActive(key: String): Boolean = fault1(key) || fault2(key)
@@ -157,6 +208,8 @@ data class WsubState(
     val maxPeers: Int = 4,
     val scan: Boolean = false,
     val found: List<String> = emptyList(),
+    /** fb=1 (firmware ≥ 2.9.1): sub hilang ≥ 6 dtk → satelit sementara full-range. */
+    val fallback: Boolean = false,
 ) {
     /** Firmware single-peer lama / peer pertama. */
     val peer: String? get() = peers.firstOrNull()?.mac

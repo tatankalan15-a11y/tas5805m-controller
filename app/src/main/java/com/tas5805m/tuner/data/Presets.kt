@@ -52,7 +52,7 @@ data class Preset(
             return Preset(
                 id = o.optString("id", UUID.randomUUID().toString()),
                 name = o.optString("name", "Preset"),
-                mode = o.optInt("mode", 0).coerceIn(0, 2),
+                mode = o.optInt("mode", 0).coerceIn(0, 4),
                 master = o.optInt("master", 90).coerceIn(0, 100),
                 gainCode = o.optInt("gain", 18).coerceIn(0, 31),
                 xover = o.optInt("xover", 150).coerceIn(60, 150),
