@@ -144,3 +144,6 @@ MIT (lihat LICENSE bila ada). Kode aplikasi disediakan apa adanya; uji di perang
 
 **Final 3.1.0** — controller lengkap + multi-sub wireless.
 
+
+### Riwayat perubahan
+Lihat `CHANGELOG.md` (di root paket).
