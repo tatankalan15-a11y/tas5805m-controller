@@ -5,8 +5,8 @@ plugins {
 }
 
 // Versi bisa di-override dari CI: -PappVersionName=1.2.3 -PappVersionCode=12
-val appVersionName: String = (findProperty("appVersionName") as String?) ?: "3.1.2"
-val appVersionCode: Int = ((findProperty("appVersionCode") as String?) ?: "32").toInt()
+val appVersionName: String = (findProperty("appVersionName") as String?) ?: "3.2.2"
+val appVersionCode: Int = ((findProperty("appVersionCode") as String?) ?: "34").toInt()
 
 // Signing release hanya aktif jika env var keystore tersedia (GitHub Secrets).
 val ksPath: String? = System.getenv("KEYSTORE_PATH")
