@@ -726,7 +726,7 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
     fun toastShown() { _toast.value = null }
 
     /** Polling `status` tiap 2 dtk membanjiri log dengan MODE/STATE/FX identik; saring yang sama persis (<15 dtk).
-     *  Baris WSUB*/SLAVE selalu dicatat (nilainya berubah) — itu bahan diagnostik. */
+     *  Baris berawalan WSUB (termasuk WSUBS = SLAVE) selalu dicatat karena nilainya berubah — itu bahan diagnostik. */
     private fun shouldLog(line: String): Boolean {
         val head = line.substringBefore(' ')
         if (head != "MODE" && head != "STATE" && head != "FX") return true
