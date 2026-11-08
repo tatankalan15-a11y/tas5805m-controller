@@ -150,7 +150,7 @@ class SppClient(private val scope: CoroutineScope) {
                     sb.setLength(0)
                     if (line.isNotEmpty()) _lines.tryEmit(line)
                 } else if (c != '\r') {
-                    if (sb.length < 400) sb.append(c)
+                    if (sb.length < 1024) sb.append(c)
                 }
             }
         }
