@@ -20,7 +20,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -40,8 +39,6 @@ import com.tas5805m.tuner.data.AudioMode
 import com.tas5805m.tuner.data.TunerState
 import com.tas5805m.tuner.data.XOVER_BANDS
 import com.tas5805m.tuner.data.freqLabel
-import kotlin.math.log10
-import kotlin.math.pow
 
 @Composable
 fun EqScreen(s: TunerState, vm: TunerViewModel) {
@@ -132,7 +129,7 @@ fun EqScreen(s: TunerState, vm: TunerViewModel) {
                         value = g,
                         onChange = { vm.setEqBand(ch, i, it) },
                         modifier = Modifier.width(48.dp).height(210.dp),
-                        enabled = s.eq.enabled && !(locked && i < XOVER_BANDS) && !(s.delayBandsBusy && i >= 12),
+                        enabled = s.eq.enabled && !(locked && i < XOVER_BANDS),
                     )
                     Text(freqLabel(EQ_FREQS[i]), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -147,49 +144,6 @@ fun EqScreen(s: TunerState, vm: TunerViewModel) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-    }
-
-    if (s.hasPeq) {
-        var peqBand by rememberSaveable { mutableIntStateOf(if (locked) XOVER_BANDS else 0) }
-        var peqChannel by rememberSaveable { mutableStateOf('b') }
-        var logFreq by rememberSaveable { mutableStateOf(log10(1000f)) }
-        var peqQ by rememberSaveable { mutableStateOf(1f) }
-        var peqGain by rememberSaveable { mutableStateOf(0f) }
-        LaunchedEffect(locked) { if (locked && peqBand < XOVER_BANDS) peqBand = XOVER_BANDS }
-        val freqHz = 10f.pow(logFreq).coerceIn(20f, 20000f)
-        val delayBandsReserved = s.delayBandsBusy
-        val peqBandEnd = if (delayBandsReserved) 12 else EQ_BANDS
-        LaunchedEffect(delayBandsReserved, locked) {
-            val minBand = if (locked) XOVER_BANDS else 0
-            if (peqBand < minBand || peqBand >= peqBandEnd) peqBand = minBand
-        }
-        SectionCard("Parametric EQ (PEQ)") {
-            Text("Pilih band biquad yang akan diatur", style = MaterialTheme.typography.labelLarge)
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                (if (locked) XOVER_BANDS until peqBandEnd else 0 until peqBandEnd).forEach { idx ->
-                    FilterChip(selected = peqBand == idx, onClick = { peqBand = idx }, label = { Text("${idx + 1}") })
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = peqChannel == 'b', onClick = { peqChannel = 'b' }, label = { Text("L + R") })
-                FilterChip(selected = peqChannel == 'l', onClick = { peqChannel = 'l' }, label = { Text("Kiri") })
-                FilterChip(selected = peqChannel == 'r', onClick = { peqChannel = 'r' }, label = { Text("Kanan") })
-            }
-            LabeledSlider("Frekuensi tengah", "${freqHz.toInt()} Hz", logFreq, log10(20f)..log10(20000f), steps = 0) {
-                logFreq = it
-            }
-            LabeledSlider("Q (lebar filter)", "${"%.2f".format(peqQ)}", peqQ, 0.1f..20f, steps = 0) { peqQ = it }
-            LabeledSlider("Gain", "${"%+.1f".format(peqGain)} dB", peqGain, -15f..15f, steps = 59) { peqGain = it }
-            Button(onClick = { vm.setPeq(peqChannel, peqBand, freqHz, peqQ, peqGain) }, enabled = s.synced) {
-                Text("Terapkan PEQ band ${peqBand + 1}")
-            }
-            OutlinedButton(onClick = { vm.saveToDevice() }, enabled = s.synced) { Text("Simpan semua DSP ke perangkat") }
-            Text(
-                "PEQ disimpan ke perangkat melalui tombol Simpan di bawah / perintah Save. Parameter frekuensi, Q, dan gain akan dipulihkan saat boot. Band 1–3 dikunci ketika crossover 2.1 aktif; band 13–15 dipakai bersama oleh time alignment selama delay aktif. Menggeser band yang sama di EQ grafis akan menggantikan PEQ band itu (frekuensi dan Q-nya dibuang).",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
     }
 
     SectionCard("Preset EQ cepat") {

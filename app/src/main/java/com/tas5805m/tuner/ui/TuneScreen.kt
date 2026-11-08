@@ -50,7 +50,7 @@ fun TuneScreen(s: TunerState, vm: TunerViewModel) {
     }
 
     SectionCard("Mode audio") {
-        s.availableModes.forEach { m ->
+        AudioMode.entries.forEach { m ->
             val sel = m == s.mode
             Card(
                 modifier = Modifier

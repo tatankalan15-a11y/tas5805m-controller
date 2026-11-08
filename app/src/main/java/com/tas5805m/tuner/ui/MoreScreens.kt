@@ -3,6 +3,8 @@ package com.tas5805m.tuner.ui
 import android.content.Intent
 import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -65,6 +67,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tas5805m.tuner.TunerViewModel
 import com.tas5805m.tuner.data.AudioMode
 import com.tas5805m.tuner.data.FactoryPresets
+import com.tas5805m.tuner.data.LogEntry
 import com.tas5805m.tuner.data.Preset
 import com.tas5805m.tuner.data.ThemeMode
 import com.tas5805m.tuner.data.TunerState
@@ -366,14 +369,35 @@ private fun DacPage(s: TunerState, vm: TunerViewModel) {
 
 // ───────────────────────── Konsol ─────────────────────────
 
+/** Teks log untuk disimpan/dibagikan. Baris WSUBS ditampilkan sebagai SLAVE (log radio slave via master). */
+private fun logToText(entries: List<LogEntry>, fmt: SimpleDateFormat): String =
+    entries.joinToString("\n") { e ->
+        val t = if (e.text.startsWith("WSUBS")) "SLAVE" + e.text.drop(5) else e.text
+        "${fmt.format(Date(e.time))} ${e.dir} $t"
+    }
+
 @Composable
 private fun ConsolePage(vm: TunerViewModel) {
     val log by vm.log.collectAsStateWithLifecycle()
     var input by remember { mutableStateOf("") }
+    var onlyWsub by remember { mutableStateOf(false) }
+    val ctx = LocalContext.current
     val listState = rememberLazyListState()
     val fmt = remember { SimpleDateFormat("HH:mm:ss", Locale.US) }
 
-    LaunchedEffect(log.size) { if (log.isNotEmpty()) listState.scrollToItem(log.size - 1) }
+    val shown = if (onlyWsub) log.filter { it.text.startsWith("WSUB") } else log
+    LaunchedEffect(shown.size) { if (shown.isNotEmpty()) listState.scrollToItem(shown.size - 1) }
+
+    val fmtFull = remember { SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US) }
+    // Simpan ke file lewat pemilih lokasi sistem (tanpa izin penyimpanan).
+    val saveLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+        if (uri != null) {
+            val ok = runCatching {
+                ctx.contentResolver.openOutputStream(uri)?.use { it.write(logToText(shown, fmtFull).toByteArray(Charsets.UTF_8)) } != null
+            }.getOrDefault(false)
+            vm.showToast(if (ok) "Log disimpan (${shown.size} baris)" else "Gagal menyimpan log")
+        }
+    }
 
     SectionCard("Kirim perintah") {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -393,21 +417,49 @@ private fun ConsolePage(vm: TunerViewModel) {
     }
 
     SectionCard("Log", trailing = { TextButton(onClick = { vm.clearLog() }) { Text("Bersihkan") } }) {
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            FilterChip(selected = !onlyWsub, onClick = { onlyWsub = false }, label = { Text("Semua") })
+            FilterChip(selected = onlyWsub, onClick = { onlyWsub = true }, label = { Text("Sub wireless (master + slave)") })
+            TextButton(
+                enabled = shown.isNotEmpty(),
+                onClick = {
+                    val text = logToText(shown.takeLast(300), fmtFull)
+                    val i = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_SUBJECT, "Log TAS5805M Tuner")
+                        putExtra(Intent.EXTRA_TEXT, text)
+                    }
+                    ctx.startActivity(Intent.createChooser(i, "Bagikan log"))
+                },
+            ) { Text("Bagikan") }
+            TextButton(
+                enabled = shown.isNotEmpty(),
+                onClick = {
+                    val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+                    saveLauncher.launch("tas5805m-log-$stamp.txt")
+                },
+            ) { Text("Simpan") }
+        }
         LazyColumn(Modifier.fillMaxWidth().height(340.dp), state = listState) {
-            items(log) { e ->
+            items(shown) { e ->
                 val c = when (e.dir) {
                     '>' -> MaterialTheme.colorScheme.primary
                     '<' -> MaterialTheme.colorScheme.onSurface
                     else -> MaterialTheme.colorScheme.tertiary
                 }
+                val t = if (e.text.startsWith("WSUBS")) "SLAVE" + e.text.drop(5) else e.text
                 Text(
-                    "${fmt.format(Date(e.time))} ${e.dir} ${e.text}",
+                    "${fmt.format(Date(e.time))} ${e.dir} $t",
                     color = c, fontFamily = FontFamily.Monospace, fontSize = 11.sp, lineHeight = 15.sp,
                 )
             }
         }
         Text(
-            "Catatan: perintah CLI firmware (mis. eqm, vol, mod) mencetak hasilnya ke UART, bukan ke SPP — di sini hanya \"OK …\" yang terlihat.",
+            "Catatan: perintah CLI firmware (mis. eqm, vol, mod) mencetak hasilnya ke UART, bukan ke SPP — di sini hanya \"OK …\" yang terlihat. Slave tidak punya Bluetooth: ringkasan radio slave dikirim master sebagai baris \"SLAVE …\" (firmware ≥ 2.9.9); log serial lengkap slave tetap lewat UART.",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -431,7 +483,7 @@ private fun SettingsPage(vm: TunerViewModel) {
         SwitchRow("Layar tetap menyala", "Berguna saat tuning sambil mendengarkan", st.keepScreenOn) { v -> vm.store.updateSettings { it.copy(keepScreenOn = v) } }
     }
     SectionCard("Koneksi") {
-        SwitchRow("Sambung otomatis", "Saat aplikasi dibuka dan setelah koneksi terputus (maks. 8 percobaan)", st.autoReconnect) { v -> vm.store.updateSettings { it.copy(autoReconnect = v) } }
+        SwitchRow("Sambung otomatis", "Ke perangkat terakhir saat aplikasi dibuka", st.autoReconnect) { v -> vm.store.updateSettings { it.copy(autoReconnect = v) } }
         Text(
             "Perangkat terakhir: ${st.lastName ?: "—"}",
             style = MaterialTheme.typography.bodySmall,

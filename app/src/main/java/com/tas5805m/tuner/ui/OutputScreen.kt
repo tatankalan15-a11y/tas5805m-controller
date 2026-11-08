@@ -52,29 +52,15 @@ fun OutputScreen(s: TunerState, vm: TunerViewModel) {
             }
             LabeledSlider(
                 "Frekuensi crossover", "${s.xover} Hz",
-                s.xover.toFloat(), s.xoverMin.toFloat()..s.xoverMax.toFloat(),
-                steps = (s.xoverMax - s.xoverMin) / 10 - 1,
+                s.xover.toFloat(), 60f..150f, steps = 8,
             ) { vm.setXover((it / 10f).roundToInt() * 10) }
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(40, 60, 80, 100, 120, 150, 180, 200).filter { it in s.xoverMin..s.xoverMax }.forEach { hz ->
+                listOf(60, 80, 100, 120, 150).forEach { hz ->
                     FilterChip(selected = s.xover == hz, onClick = { vm.setXover(hz) }, label = { Text("$hz Hz") })
                 }
             }
-            Text("Filter slope", style = MaterialTheme.typography.labelLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = s.xoverOrder == 2,
-                    onClick = { vm.setXover(s.xover, 2) },
-                    label = { Text("Butterworth 12 dB/oct") },
-                )
-                FilterChip(
-                    selected = s.xoverOrder == 4,
-                    onClick = { vm.setXover(s.xover, 4) },
-                    label = { Text("Linkwitz–Riley 24 dB/oct") },
-                )
-            }
             Text(
-                "$where Firmware memakai biquad Butterworth orde-2 atau dua tahap Butterworth berantai (LR orde-4). Grafik adalah ilustrasi respons ideal, bukan hasil ukur akustik.",
+                "$where Firmware memakai profil biquad 60–150 Hz dengan langkah 10 Hz. Grafik hanya ilustrasi orde-4.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -92,51 +78,10 @@ fun OutputScreen(s: TunerState, vm: TunerViewModel) {
                 )
             }
             Text(
-                "Crossover memakai biquad band 0–2. Band tersebut dicadangkan saat mode 2.1 aktif agar tidak tertimpa EQ pengguna.",
+                "Crossover memakai biquad band EQ 20/32/50 Hz. Di mode 2.1 band itu dikunci agar tidak tertimpa EQ.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        }
-
-        if (s.hasTdelay) {
-            SectionCard("Time alignment (perkiraan)" ) {
-                LabeledSlider("Satelit", "${"%.2f".format(s.tdelaySatMs)} ms", s.tdelaySatMs, 0f..13f, steps = 25) {
-                    vm.setTdelay("sat", it)
-                }
-                if (s.mode != AudioMode.STEREO && s.mode != AudioMode.WIRELESS) {
-                    LabeledSlider("Subwoofer", "${"%.2f".format(s.tdelaySubMs)} ms", s.tdelaySubMs, 0f..13f, steps = 25) {
-                        vm.setTdelay("sub", it)
-                    }
-                }
-                if (s.mode == AudioMode.THREE_ONE) {
-                    LabeledSlider("Center", "${"%.2f".format(s.tdelayCtrMs)} ms", s.tdelayCtrMs, 0f..13f, steps = 25) {
-                        vm.setTdelay("ctr", it)
-                    }
-                }
-                Text(
-                    "Catatan: firmware memakai 3 all-pass biquad untuk mendekati group delay, bukan buffer penundaan sampel yang presisi. Maksimum efektif 13 ms, dan delay hanya konsisten di frekuensi rendah (kira-kira di bawah 1 kHz untuk 1 ms, 190 Hz untuk 5 ms, 74 Hz untuk 13 ms), jadi paling cocok untuk subwoofer. Band 13–15 (EQ/PEQ) dipakai bersama selama alignment aktif. Tidak tersedia untuk kanal sub wireless.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-
-        if (s.hasLimit) {
-            SectionCard("Soft clipper / pembatas puncak") {
-                val threshold = (s.limitThrDb10 / 10f).coerceIn(-30f, 0f)
-                LabeledSlider(
-                    if (s.limitOn) "Ambang clipper" else "Ambang clipper (nonaktif)",
-                    if (s.limitOn) "${"%.1f".format(threshold)} dB" else "OFF",
-                    if (s.limitOn) threshold else 0f,
-                    -30f..0f,
-                    steps = 59,
-                ) { vm.setLimit(it) }
-                Text(
-                    "Ini mengatur soft clipper TAS5805M, bukan DRC multiband dengan attack/release/ratio/knee. Setel konservatif dan cek indikator clipping serta suhu amplifier.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
         }
 
         SectionCard("Level output") {

@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -19,6 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.tas5805m.tuner.TunerViewModel
 import com.tas5805m.tuner.data.TunerState
+import com.tas5805m.tuner.data.WsubState
 import kotlinx.coroutines.delay
 
 /** Status + pairing multi-sub wireless (hingga 4 slave). Firmware ≥ 2.9; multi ≥ 3.1. */
@@ -28,7 +28,6 @@ fun WsubCard(s: TunerState, vm: TunerViewModel) {
     LaunchedEffect(Unit) {
         while (true) {
             vm.requestStatus()
-            vm.requestWlat()
             delay(2000)
         }
     }
@@ -39,21 +38,6 @@ fun WsubCard(s: TunerState, vm: TunerViewModel) {
             fontWeight = FontWeight.SemiBold,
             color = if (w.link) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
         )
-        if (w.fallback) {
-            Surface(
-                color = MaterialTheme.colorScheme.errorContainer,
-                shape = MaterialTheme.shapes.medium,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
-                    "Fallback stereo aktif: sub hilang ≥ 6 dtk, satelit sementara full-range. " +
-                        "Crossover (HPF) dipasang lagi otomatis setelah link stabil 2 dtk.",
-                    modifier = Modifier.padding(12.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                )
-            }
-        }
         if (w.peers.isEmpty()) {
             Text(
                 "Belum ada slave terpasang",
@@ -84,6 +68,13 @@ fun WsubCard(s: TunerState, vm: TunerViewModel) {
                                 else -> "Tidak terhubung"
                             }
                             Text(st, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (p.link && p.rxAudio >= 0) {
+                                Text(
+                                    "Slave: rx audio ${p.rxAudio}/dtk · ctrl ${p.rxCtrl}/dtk · ditolak ${p.rej} · tx gagal ${p.stx}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                         TextButton(onClick = { vm.wsubUnpair(p.mac) }) { Text("Lepas") }
                     }
@@ -91,27 +82,7 @@ fun WsubCard(s: TunerState, vm: TunerViewModel) {
             }
         }
 
-        if (s.hasWlat) {
-            LabeledSlider(
-                "Penyelarasan waktu sub", "%+.1f ms".format(s.wtrimMs),
-                s.wtrimMs, -20f..50f, steps = 139,
-            ) { vm.setWTrim(it) }
-            if (s.wlatSatMs > 0f && s.wlatSubMs.isNotEmpty()) {
-                val sub = s.wlatSubMs.average().toFloat()
-                Text(
-                    "Latensi: satelit %.1f ms · sub ≈ %.1f ms (selisih %+.1f ms)".format(s.wlatSatMs, sub, sub - s.wlatSatMs),
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Medium,
-                )
-            }
-            Text(
-                "Sub otomatis disejajarkan dengan jalur satelit. Geser untuk menyesuaikan jarak speaker " +
-                    "(positif = sub lebih lambat). Angka latensi adalah estimasi dari model dan isi buffer, bukan " +
-                    "pengukuran akustik. Jika jaringan radio ramai, buffer sub naik otomatis dan selisih bisa positif.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        if (w.diag) WsubDiag(w, vm)
 
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -159,5 +130,56 @@ fun WsubCard(s: TunerState, vm: TunerViewModel) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+/** Sinkron sub ↔ satelit (trim) + diagnostik link radio master. Firmware ≥ 2.9.8. */
+@Composable
+private fun WsubDiag(w: WsubState, vm: TunerViewModel) {
+    Text("Sinkron sub ↔ satelit", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+    Text(
+        "Latensi sub ${w.lat} ms · trim ${if (w.trim > 0) "+" else ""}${w.trim} ms",
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        listOf(-5, -1, 1, 5).forEach { d ->
+            OutlinedButton(onClick = { vm.wsubTrimBy(d) }) { Text(if (d > 0) "+$d" else "$d") }
+        }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        TextButton(onClick = { vm.wsubTrim(0) }) { Text("Trim 0") }
+        TextButton(onClick = { vm.wsubDiagReset() }) { Text("Reset diagnostik") }
+    }
+    Text(
+        "+ = sub lebih lambat. Putar klik/sweep bass, rekam satelit & sub, geser sampai puncaknya sejajar.",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    val total = w.ackOk + w.ackFail
+    Text(
+        "Radio master: ch ${w.ch} · ACK ${w.ackOk}/$total · tanpa ACK ${w.ackFail} · antrean penuh ${w.nomem} · gagal kirim ${w.txf} · error ${w.err}",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    val (text, bad) = wsubVerdict(w)
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        fontWeight = FontWeight.Medium,
+        color = if (bad) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+    )
+}
+
+/** Ringkasan penyebab dari penghitung master. Pair: (teks, bermasalah). */
+private fun wsubVerdict(w: WsubState): Pair<String, Boolean> {
+    val total = w.ackOk + w.ackFail
+    return when {
+        !w.link -> "Slave belum terhubung — cek pairing, channel (master & slave harus sama) dan jarak." to true
+        w.nomem > 0L || w.err == "NO_MEM" ->
+            "Antrean ESP-NOW penuh (radio tersita Bluetooth A2DP). Build master dengan WSUB_PKT_TX lebih besar atau WSUB_FAST_RATE=1." to true
+        total >= 50L && w.ackFail * 10L > total ->
+            "Lebih dari 10% paket tanpa ACK — dekatkan slave dan pastikan channel master = slave." to true
+        total < 50L -> "Mengumpulkan data… putar musik beberapa detik." to false
+        else -> "Link radio sehat." to false
     }
 }
