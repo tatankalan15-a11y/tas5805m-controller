@@ -1,117 +1,64 @@
-# TAS5805M Controller — Final 3.0.0
+# TAS5805M Controller **3.2.2**
 
-Aplikasi Android **lengkap** untuk tuning ESP32 + TAS5805M.
+Aplikasi Android untuk tuning **ESP32 + TAS5805M** lewat Bluetooth **SPP** (`TAS5805M-CTRL`).
 
-**Kotlin · Jetpack Compose · Material 3 · Bluetooth SPP**
-
-Versi ini didasarkan pada controller **2.12.0** (fitur penuh), dikemas ulang sebagai **rilis final 3.0.0**.
+Kotlin · Jetpack Compose · Material 3 · minSdk 26
 
 ---
 
-## Fitur lengkap
+## Fitur
 
-### Koneksi
-- Bluetooth Classic **SPP** ke perangkat `TAS5805M-CTRL`
-- Pair di pengaturan Bluetooth Android, lalu pilih di app
+- Volume master / satelit / sub / center  
+- EQ 15-band + preset (dengan proteksi mode 2.1)  
+- Mixer, crossfeed, lebar stereo, DAC BTL/PBTL  
+- Monitor level & fault (termasuk 2-chip)  
+- Save NVS, standby, polaritas sub  
+- **Sub wireless multi** (hingga 4 slave) — butuh firmware ≥ **2.9.3**  
+- Mode UI otomatis dari `status` / `caps` firmware  
+- **Sinkron sub ↔ satelit**: trim latensi (−5/−1/+1/+5 ms) + diagnostik link radio master (ACK, antrean penuh, channel) + ringkasan penyebab — butuh firmware ≥ **2.9.8**  
+- **Log master + slave** di tab Lainnya → Konsol (filter “Sub wireless”): baris `WSUB …` (master) dan `SLAVE …` (diagnostik radio slave, relay lewat master) — baris slave butuh firmware ≥ **2.9.9**  
+- **Sambung ulang otomatis** bila koneksi putus sendiri (maks 5×, jeda 3 dtk; ikut opsi “Sambung otomatis”)  
+- Log: baris status identik disaring, kapasitas 1000 baris, tombol **Simpan** (tulis ke file .txt, pilih lokasi mis. Downloads) dan **Bagikan** (kirim log untuk diagnosa)  
 
-### Mode sistem (otomatis dari firmware)
-- Stereo (1 chip)
-- 2.1 dua chip (satelit + sub di satu ESP32)
-- 2.1 satu chip / wireless sesuai firmware
-
-### Tab Tune
-- Volume master & sub
-- Mute
-- Bass / treble / loudness (sesuai protokol)
-- Quick actions: Mute All · Reset · Crossfeed · **Save NVS**
-- Indikator **Saved / Unsaved**
-
-### Tab EQ
-- 15-band parametric
-- EQ on/off, profile filter
-- Mode 2.1: band crossover dikunci (aman)
-- Preset / reset (band ≥ 80 Hz di mode 2.1)
-
-### Tab Output
-- **Crossfeed** 0–100% + loudness compensation
-- Preset: Stereo / Ringan / Sedang / Kuat / Asimetris / Mono
-- Matrix mixer manual (−1…2)
-- **Lebar stereo**
-- Polaritas sub, Center (3.1 jika firmware mendukung)
-- DAC mode BTL / PBTL
-
-### Tab Monitor
-- Level meter
-- Fault satelit & sub (mode 2-chip) terpisah
-- Status chip / modulasi / clipper (firmware v3+)
-
-### Lainnya
-- Preset simpan/muat
-- Auto-standby terkait firmware
-- Protokol teks lengkap: lihat `PROTOCOL.md`
+Protokol: lihat **`PROTOCOL.md`**.
 
 ---
 
-## Build APK lewat GitHub
+## Build APK (GitHub Actions)
 
-1. Buat repository GitHub baru  
-2. Upload **seluruh isi** folder ini (termasuk `.github/`)  
-3. Tab **Actions** → workflow **Android APK** → tunggu hijau  
-4. Download artifact **TAS5805M-Tuner-apk** → install di HP  
+1. Buat repo, upload seluruh isi folder ini (termasuk `.github/`)  
+2. Tab **Actions** → **Android APK** → unduh artifact  
+3. Install APK di HP  
 
 ```bash
-cd tas5805m-controller-final
-git init
-git add .
-git commit -m "TAS5805M Controller Final 3.0.0"
+git init && git add . && git commit -m "Controller 3.1.0"
 git branch -M main
-git remote add origin https://github.com/USERNAME/tas5805m-controller.git
+git remote add origin https://github.com/USER/tas5805m-controller.git
 git push -u origin main
 ```
 
-Tag rilis (APK di Releases, jika workflow mendukung):
-
-```bash
-git tag v3.0.0
-git push --tags
-```
-
-### Secrets opsional (APK signed)
-
-| Secret | Keterangan |
-|--------|------------|
-| `KEYSTORE_BASE64` | Keystore base64 |
-| `KEYSTORE_PASSWORD` | |
-| `KEY_ALIAS` | |
-| `KEY_PASSWORD` | |
-
-Tanpa secrets, APK tetap di-build (signed debug) dan bisa di-install.
+Tag rilis: `git tag v3.1.0 && git push --tags`
 
 ---
 
-## Build lokal
+## Pemakaian
 
-- **Android Studio**: Open folder ini → Sync → Run  
-- **CLI** (JDK 17 + Android SDK):
-
-```bash
-gradle wrapper --gradle-version 8.9
-./gradlew assembleRelease
-# app/build/outputs/apk/release/
-```
+1. Flash firmware yang sesuai (stereo / 2-chip / wireless master + slave)  
+2. Pair **`TAS5805M-CTRL`** di Bluetooth Android  
+3. Buka app → hubungkan  
+4. Mode wireless: tab **Output → Sub wireless (multi)** → scan & pair  
 
 ---
 
-## Firmware yang dibutuhkan
+## Firmware yang didukung
 
-| Fitur | Firmware |
-|-------|----------|
-| Kontrol dasar | SPP `TAS5805M-CTRL` |
-| EQ per-channel, meter, readback, save | **v3+** |
-| 2-chip fault terpisah | **v3.3+** |
-| Center / lebar stereo lanjutan | **≥ 2.6.x** sesuai catatan changelog |
+| Firmware | Keterangan |
+|----------|------------|
+| 2.9.x SPP | Kontrol penuh |
+| **2.9.3 multi-sub** | Hingga 4 peer wireless |
+| Env stereo / 2.1 / 3.1 / wireless | Mode terbaca otomatis |
 
-Protokol perintah: **`PROTOCOL.md`**
+Bukan klien BLE JSON (project terpisah).
 
 ---
 
@@ -119,31 +66,23 @@ Protokol perintah: **`PROTOCOL.md`**
 
 ```
 app/src/main/java/com/tas5805m/tuner/
-├── MainActivity.kt
-├── TunerViewModel.kt      # logika utama
-├── bt/                    # SPP client
-├── data/                  # Protocol, Models, Presets
-└── ui/                    # Tune, EQ, Output, Monitor, Connect, …
+  MainActivity.kt · TunerViewModel.kt
+  bt/ · data/ · ui/
 .github/workflows/android.yml
 PROTOCOL.md
 ```
 
 ## Lisensi
 
-MIT (lihat LICENSE bila ada). Kode aplikasi disediakan apa adanya; uji di perangkat Anda.
+MIT — lihat `LICENSE`.
 
----
+## Perubahan 3.2.1
 
-### Multi-sub wireless (3.1.0+)
+- Baris SPP > 400 karakter tidak lagi terpotong (status dengan banyak slave + daftar `found=` sebelumnya bisa rusak, termasuk MAC pairing).
+- Tombol trim: tap beruntun kini menumpuk (sebelumnya memakai nilai lama sehingga sebagian tap hilang).
+- Kartu sub wireless dibersihkan saat koneksi putus (sebelumnya data basi tetap tampil).
+- Polling status tidak lagi membanjiri log dengan `MODE/STATE/FX` identik.
 
-- Hingga **4** slave ESP-NOW
-- UI: daftar slot, pair/lepas per MAC, lepas semua
-- Protokol: `WSUB peers=…` / `WSUBP` (lihat PROTOCOL.md)
-- Firmware 1-peer lama tetap jalan
-- Level `subvol`/`xover`/`subinv` broadcast ke semua peer
+## Perubahan 3.2.2
 
-**Final 3.1.0** — controller lengkap + multi-sub wireless.
-
-
-### Riwayat perubahan
-Lihat `CHANGELOG.md` (di root paket).
+- Log Konsol bisa **disimpan ke file** `tas5805m-log-<tanggal>.txt` (seluruh isi log sesuai filter aktif, hingga 1000 baris, dengan tanggal lengkap). Memakai pemilih file sistem, tanpa izin penyimpanan.
