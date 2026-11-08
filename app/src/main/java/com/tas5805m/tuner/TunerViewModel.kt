@@ -30,7 +30,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -61,8 +60,9 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
     private var pingSentAt = 0L
     private var monitorJob: Job? = null
     private var autoTried = false
-    private var manualDisconnect = false
-    private var retryJob: Job? = null
+    private var manualDisc = false
+    private var reconnectJob: Job? = null
+    private val lastLog = HashMap<String, Pair<String, Long>>()
 
     init {
         viewModelScope.launch { client.lines.collect { onLine(it) } }
@@ -71,13 +71,11 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
             var prev = SppClient.Link.IDLE
             client.link.collect { l ->
                 if (l == SppClient.Link.CONNECTED && prev != SppClient.Link.CONNECTED) onConnected()
-                if (prev == SppClient.Link.CONNECTED && l != SppClient.Link.CONNECTED && !manualDisconnect) {
-                    showToast("Koneksi terputus, mencoba menyambung ulang…")
-                    scheduleReconnect()
-                }
                 if (l != SppClient.Link.CONNECTED) {
                     stopMonitor()
-                    _ui.update { it.copy(synced = false, hasExt = false, hasV3 = false, hasLvl2 = false, hasWsub = false, hasWlvl = false, hasWlat = false, capsKnown = false) }
+                    _ui.update { it.copy(synced = false, hasExt = false, hasV3 = false, hasLvl2 = false, wsub = null) }
+                    // Putus tanpa diminta pengguna (ESP32 reboot / di luar jangkauan) → coba sambung ulang.
+                    if (prev == SppClient.Link.CONNECTED && !manualDisc) scheduleReconnect()
                 }
                 if (l == SppClient.Link.FAILED) addLog('!', "Koneksi gagal: ${client.error.value ?: "?"}")
                 prev = l
@@ -92,10 +90,15 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun connect(address: String, name: String) {
+        reconnectJob?.cancel()
+        manualDisc = false
+        doConnect(address, name)
+    }
+
+    private fun doConnect(address: String, name: String) {
         val dev = BtUtil.remote(getApplication(), address) ?: run {
             showToast("Alamat perangkat tidak valid"); return
         }
-        manualDisconnect = false
         store.updateSettings { it.copy(lastAddress = address, lastName = name) }
         addLog('!', "Menyambung ke $name ($address)")
         client.connect(dev)
@@ -111,29 +114,29 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun disconnect() {
+        manualDisc = true
+        reconnectJob?.cancel()
         autoTried = true
-        manualDisconnect = true
-        retryJob?.cancel()
         client.disconnect()
     }
 
-    /** Sambung ulang otomatis setelah koneksi terputus (bukan karena tombol Putus). Maks. 8 percobaan. */
+    /** Sambung ulang otomatis (maks 5×, jeda 3 dtk) bila koneksi putus sendiri dan opsi "Sambung otomatis" aktif. */
     private fun scheduleReconnect() {
         val st = store.settings.value
         val addr = st.lastAddress ?: return
-        if (!st.autoReconnect || retryJob?.isActive == true) return
-        if (!BtUtil.hasPermission(getApplication())) return
-        retryJob = viewModelScope.launch {
-            val waits = longArrayOf(2000, 3000, 5000, 5000, 8000, 10000, 15000, 15000)
-            for ((i, w) in waits.withIndex()) {
-                addLog('!', "Sambung ulang ${i + 1}/${waits.size} dalam ${w / 1000} dtk")
-                delay(w)
-                if (manualDisconnect) return@launch
-                connect(addr, st.lastName ?: addr)
-                if (client.link.first { it != SppClient.Link.CONNECTING } == SppClient.Link.CONNECTED) return@launch
-                if (manualDisconnect) return@launch
+        if (!st.autoReconnect) return
+        reconnectJob?.cancel()
+        reconnectJob = viewModelScope.launch {
+            for (i in 1..5) {
+                delay(3000)
+                if (manualDisc || client.link.value == SppClient.Link.CONNECTED) return@launch
+                addLog('!', "Menyambung ulang ($i/5)…")
+                doConnect(addr, st.lastName ?: addr)
+                var waited = 0
+                while (client.link.value == SppClient.Link.CONNECTING && waited < 20) { delay(1000); waited++ }
+                if (client.link.value == SppClient.Link.CONNECTED) return@launch
             }
-            showToast("Gagal menyambung ulang. Sambungkan manual.")
+            addLog('!', "Sambung ulang gagal — sambungkan manual dari layar Koneksi.")
         }
     }
 
@@ -152,13 +155,12 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun onLine(line: String) {
         val rx = Protocol.parse(line)
-        if (!(rx is Rx.Level || rx is Rx.Level2)) addLog('<', line)
+        if (!(rx is Rx.Level || rx is Rx.Level2) && shouldLog(line)) addLog('<', line)
         when (rx) {
             is Rx.Mode -> _ui.update { s ->
                 s.copy(
                     mode = if (fresh("mode", 1500)) s.mode else AudioMode.from(rx.mode),
                     xover = if (fresh("xover")) s.xover else rx.xover,
-                    xoverOrder = if (fresh("xover")) s.xoverOrder else rx.ord,
                     master = if (fresh("master")) s.master else rx.master,
                     sat = if (fresh("sat")) s.sat else rx.sat,
                     sub = if (fresh("sub")) s.sub else rx.sub,
@@ -176,13 +178,31 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
             }
             is Rx.Fault -> onFault(rx.values, 1)
             is Rx.Fault2 -> onFault(rx.values, 2)
-            is Rx.Wlat -> _ui.update { it.copy(wlatSatMs = rx.satMs, wlatSubMs = rx.subMs) }
-            is Rx.Wtrim -> _ui.update { it.copy(wtrimMs = rx.ms) }
-            is Rx.Wsub -> {
-                val was = _ui.value.wsub?.fallback == true
-                _ui.update { it.copy(wsub = rx.state) }
-                if (rx.state.fallback && !was) showToast("Sub nirkabel hilang — satelit sementara full-range")
-                else if (!rx.state.fallback && was) showToast("Sub tersambung lagi — crossover dipulihkan")
+            is Rx.Wsub -> _ui.update { s ->
+                // pertahankan diagnostik slave (WSUBS) dari status sebelumnya sampai baris baru tiba
+                val old = s.wsub?.peers.orEmpty()
+                val peers = rx.state.peers.map { p ->
+                    val o = old.firstOrNull { it.mac.equals(p.mac, ignoreCase = true) }
+                    if (o != null) p.copy(rxAudio = o.rxAudio, rxCtrl = o.rxCtrl, rej = o.rej, stx = o.stx) else p
+                }
+                val keep = fresh("wsubtrim", 1500)   // jangan timpa trim yang baru diketuk dengan status lama
+                val cur = s.wsub
+                val merged = if (keep && cur != null) rx.state.copy(peers = peers, trim = cur.trim, lat = cur.lat)
+                             else rx.state.copy(peers = peers)
+                s.copy(wsub = merged)
+            }
+            is Rx.WsubStat -> _ui.update { s ->
+                val cur = s.wsub
+                if (cur == null) s
+                else s.copy(
+                    wsub = cur.copy(
+                        peers = cur.peers.map { p ->
+                            if (p.mac.equals(rx.mac, ignoreCase = true))
+                                p.copy(rxAudio = rx.rxAudio, rxCtrl = rx.rxCtrl, rej = rx.rej, stx = rx.stx)
+                            else p
+                        }
+                    )
+                )
             }
             is Rx.WsubPeerLine -> _ui.update { s ->
                 val cur = s.wsub ?: WsubState()
@@ -216,12 +236,6 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
                     peakR = if (rx.r >= s.peakR) rx.r else (s.peakR - 12).coerceAtLeast(-1200),
                 )
             }
-            is Rx.WLevel -> _ui.update { s ->
-                s.copy(
-                    wlevel = rx.v,
-                    wpeak = if (rx.v >= s.wpeak) rx.v else (s.wpeak - 12).coerceAtLeast(-1200),
-                )
-            }
             is Rx.Level2 -> _ui.update { s ->
                 s.copy(
                     level2L = rx.l, level2R = rx.r,
@@ -231,32 +245,13 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
             }
             is Rx.Caps -> {
                 val v3 = rx.items.contains("v3")
-                _ui.update {
-                    it.copy(
-                        hasExt = rx.items.contains("v2") || v3,
-                        hasV3 = v3,
-                        hasLvl2 = rx.items.contains("lvl2"),
-                        hasWsub = rx.items.contains("wsub"),
-                        hasWlvl = rx.items.contains("wlvl"),
-                        hasWlat = rx.items.contains("wlat") && rx.items.contains("wtrim"),
-                        hasPeq = rx.items.contains("peq"),
-                        hasTdelay = rx.items.contains("tdelay"),
-                        hasLimit = rx.items.contains("limit"),
-                        capsKnown = true,
-                    )
-                }
+                _ui.update { it.copy(hasExt = rx.items.contains("v2") || v3, hasV3 = v3, hasLvl2 = rx.items.contains("lvl2")) }
                 if (v3) client.send("dump")
             }
             is Rx.Dac -> _ui.update { it.copy(dac = rx.mode) }
             is Rx.Dac2 -> _ui.update { it.copy(dac2 = rx.mode) }
             is Rx.Mod -> _ui.update { it.copy(modMode = rx.mode, modFreq = rx.freq, modBd = rx.bd) }
             is Rx.Clip -> _ui.update { it.copy(clipGain = rx.gain, clipL = rx.ml, clipR = rx.mr) }
-            is Rx.Limit -> _ui.update {
-                it.copy(limitOn = rx.on, limitThrDb10 = rx.thr, limitMuDb10 = rx.mu)
-            }
-            is Rx.TDelay -> _ui.update {
-                it.copy(tdelaySatMs = rx.sat, tdelaySubMs = rx.sub, tdelayCtrMs = rx.ctr)
-            }
             is Rx.Info -> _ui.update { it.copy(info = rx.values) }
             is Rx.Saved -> _ui.update { it.copy(saved = rx.saved) }
             is Rx.EqProfile -> _ui.update { it.copy(eqpL = rx.l, eqpR = rx.r) }
@@ -324,46 +319,11 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
         client.send("ampstate ${a.cmd}")
     }
 
-    fun setXover(hz: Int, order: Int? = null) {
+    fun setXover(hz: Int) {
         touch("xover")
-        val x = hz.coerceIn(_ui.value.xoverMin, _ui.value.xoverMax)
-        val ord = (order ?: _ui.value.xoverOrder).let { if (it == 2 || it == 4) it else 4 }
-        _ui.update { it.copy(xover = x, xoverOrder = ord) }
-        client.send("xover $x $ord", "xover")
-    }
-
-    fun setPeq(ch: Char, band: Int, freq: Float, q: Float, gain: Float) {
-        if (!_ui.value.hasPeq) return
-        client.send("peq $ch $band $freq $q $gain", "peq")
-    }
-
-    fun setTdelay(path: String, ms: Float) {
-        if (!_ui.value.hasTdelay) return
-        val m = ms.coerceIn(0f, 13f)
-        when (path) {
-            "sat" -> _ui.update { it.copy(tdelaySatMs = m) }
-            "sub" -> _ui.update { it.copy(tdelaySubMs = m) }
-            "ctr" -> _ui.update { it.copy(tdelayCtrMs = m) }
-        }
-        client.send("tdelay $path $m", "tdelay")
-    }
-
-    fun setLimit(threshDb: Float, makeupDb: Float? = null) {
-        if (!_ui.value.hasLimit && !_ui.value.hasV3) return
-        if (threshDb >= 0f) {
-            _ui.update { it.copy(limitOn = false) }
-            client.send("limit off", "limit")
-        } else {
-            val mu = makeupDb ?: -threshDb
-            _ui.update {
-                it.copy(
-                    limitOn = true,
-                    limitThrDb10 = (threshDb * 10).toInt(),
-                    limitMuDb10 = (mu * 10).toInt(),
-                )
-            }
-            client.send("limit $threshDb $mu", "limit")
-        }
+        val x = hz.coerceIn(60, 150)
+        _ui.update { it.copy(xover = x) }
+        client.send("xover $x", "xover")
     }
 
     fun reapplyMode() {
@@ -380,17 +340,6 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun requestStatus() { client.send("status", "status") }
 
-    /** Minta estimasi latensi jalur satelit/sub (firmware ≥ 2.9.6, env wireless master). */
-    fun requestWlat() { if (_ui.value.hasWlat) client.send("wlat", "wlat") }
-
-    /** Trim waktu sub vs satelit, −20..+50 ms (langkah 0,5). Positif = sub lebih lambat. Simpan dengan tombol Simpan. */
-    fun setWTrim(ms: Float) {
-        if (!_ui.value.hasWlat) return
-        val m = (Math.round(ms * 2f) / 2f).coerceIn(-20f, 50f)
-        _ui.update { it.copy(wtrimMs = m) }
-        client.send("wtrim $m", "wtrim")
-    }
-
     /** Cari slave (HELLO) ±8 dtk; hasil muncul di daftar "found". */
     fun wsubScan() {
         client.send("wsub_scan")
@@ -406,6 +355,23 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
         if (mac.isNullOrBlank()) client.send("wsub_unpair")
         else client.send("wsub_unpair $mac")
         viewModelScope.launch { repeat(4) { delay(800); client.send("status") } }
+    }
+
+    /** Geser sub terhadap satelit (ms, −60..100; + = sub lebih lambat). Firmware ≥ 2.9.8. */
+    fun wsubTrim(ms: Int) {
+        val t = ms.coerceIn(-60, 100)
+        // Optimistis: tap beruntun menumpuk dari nilai terbaru, bukan dari status lama yang belum kembali.
+        _ui.update { s -> s.copy(wsub = s.wsub?.let { w -> w.copy(trim = t, lat = (w.lat + t - w.trim).coerceAtLeast(0)) }) }
+        touch("wsubtrim")
+        client.send("wsub_trim $t", "wsub_trim")   // latest-wins
+        viewModelScope.launch { delay(900); client.send("status") }
+    }
+
+    fun wsubTrimBy(delta: Int) = wsubTrim((_ui.value.wsub?.trim ?: 0) + delta)
+
+    /** Nolkan penghitung diagnostik TX master (txf/ack/nomem). */
+    fun wsubDiagReset() {
+        client.send("wsub_diag_reset")
     }
 
     fun wsubUnpairAll() {
@@ -529,7 +495,6 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
             it.copy(
                 peakL = it.levelL, peakR = it.levelR,
                 peak2L = it.level2L, peak2R = it.level2R,
-                wpeak = it.wlevel,
             )
         }
     }
@@ -541,8 +506,6 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
         if (band !in 0 until EQ_BANDS) return
         // Band 0..2 = slot crossover di mode 2.1 -> jangan ditimpa
         if (_ui.value.locked21 && band < XOVER_BANDS) return
-        // Band 13..15 dipakai time alignment saat delay aktif -> firmware menolak, jadi jangan dikirim
-        if (band >= 12 && _ui.value.delayBandsBusy) return
         val g = gain.coerceIn(EQ_MIN, EQ_MAX)
         val ext = _ui.value.hasExt
         if (!ext && ch == 'r') return // firmware lama tidak bisa EQ kanan terpisah
@@ -603,7 +566,6 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
             while (isActive) {
                 if (_ui.value.hasExt) client.send("lvl", "lvl")
                 if (_ui.value.hasLvl2 && _ui.value.mode.isTwoChip) client.send("lvl2", "lvl2")
-                if (_ui.value.hasWlvl && _ui.value.mode == AudioMode.WIRELESS) client.send("wlvl", "wlvl")
                 if (tick % 12 == 0) client.send("status", "status")
                 if (_ui.value.hasV3 && tick % 12 == 6) client.send("info", "info")
                 tick++
@@ -704,12 +666,9 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun applyPreset(p: Preset) {
         val ext = _ui.value.hasExt
-        // Mode preset yang tidak didukung env firmware (mis. env wireless = hanya mode 4) dilewati
-        val wanted = AudioMode.from(p.mode)
-        val pm = if (wanted in _ui.value.availableModes) wanted else _ui.value.mode
-        val target = if (p.eqOnly) _ui.value.mode else pm
+        val target = if (p.eqOnly) _ui.value.mode else AudioMode.from(p.mode)
         if (!p.eqOnly) {
-            val m = pm
+            val m = AudioMode.from(p.mode)
             client.send("mode ${m.code}")
             _ui.update { it.copy(mode = m) }; touch("mode")
             setXover(p.xover)
@@ -766,8 +725,20 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
     fun showToast(msg: String) { _toast.value = msg }
     fun toastShown() { _toast.value = null }
 
+    /** Polling `status` tiap 2 dtk membanjiri log dengan MODE/STATE/FX identik; saring yang sama persis (<15 dtk).
+     *  Baris WSUB*/SLAVE selalu dicatat (nilainya berubah) — itu bahan diagnostik. */
+    private fun shouldLog(line: String): Boolean {
+        val head = line.substringBefore(' ')
+        if (head != "MODE" && head != "STATE" && head != "FX") return true
+        val now = SystemClock.uptimeMillis()
+        val prev = lastLog[head]
+        if (prev != null && prev.first == line && now - prev.second < 15_000L) return false
+        lastLog[head] = line to now
+        return true
+    }
+
     private fun addLog(dir: Char, text: String) {
-        _log.update { (it + LogEntry(System.currentTimeMillis(), dir, text)).takeLast(400) }
+        _log.update { (it + LogEntry(System.currentTimeMillis(), dir, text)).takeLast(1000) }
     }
 
     override fun onCleared() {
