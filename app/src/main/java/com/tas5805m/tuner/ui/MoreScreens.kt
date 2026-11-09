@@ -369,10 +369,10 @@ private fun DacPage(s: TunerState, vm: TunerViewModel) {
 
 // ───────────────────────── Konsol ─────────────────────────
 
-/** Teks log untuk disimpan/dibagikan. Baris WSUBS ditampilkan sebagai SLAVE (log radio slave via master). */
+/** Teks log untuk disimpan/dibagikan. Baris WSUBS ditampilkan sebagai SLAVE (radio slave) dan WSUBD sebagai SLAVEDIAG (histogram gap + buffer slave), keduanya via master. */
 private fun logToText(entries: List<LogEntry>, fmt: SimpleDateFormat): String =
     entries.joinToString("\n") { e ->
-        val t = if (e.text.startsWith("WSUBS")) "SLAVE" + e.text.drop(5) else e.text
+        val t = when { e.text.startsWith("WSUBS") -> "SLAVE" + e.text.drop(5); e.text.startsWith("WSUBD") -> "SLAVEDIAG" + e.text.drop(5); else -> e.text }
         "${fmt.format(Date(e.time))} ${e.dir} $t"
     }
 
@@ -385,8 +385,9 @@ private fun ConsolePage(vm: TunerViewModel) {
     val listState = rememberLazyListState()
     val fmt = remember { SimpleDateFormat("HH:mm:ss", Locale.US) }
 
-    val shown = if (onlyWsub) log.filter { it.text.startsWith("WSUB") } else log
-    LaunchedEffect(shown.size) { if (shown.isNotEmpty()) listState.scrollToItem(shown.size - 1) }
+    val shown = if (onlyWsub) log.filter { it.text.startsWith("WSUB") || it.text.startsWith("BTD") || it.text.startsWith("BTEV") || it.text.startsWith("VER ") } else log
+    // kunci waktu baris terakhir, bukan jumlah: saat log penuh (batas) jumlah tetap sama namun isi bergeser
+    LaunchedEffect(shown.size, shown.lastOrNull()?.time) { if (shown.isNotEmpty()) listState.scrollToItem(shown.size - 1) }
 
     val fmtFull = remember { SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US) }
     // Simpan ke file lewat pemilih lokasi sistem (tanpa izin penyimpanan).
@@ -451,7 +452,7 @@ private fun ConsolePage(vm: TunerViewModel) {
                     '<' -> MaterialTheme.colorScheme.onSurface
                     else -> MaterialTheme.colorScheme.tertiary
                 }
-                val t = if (e.text.startsWith("WSUBS")) "SLAVE" + e.text.drop(5) else e.text
+                val t = when { e.text.startsWith("WSUBS") -> "SLAVE" + e.text.drop(5); e.text.startsWith("WSUBD") -> "SLAVEDIAG" + e.text.drop(5); else -> e.text }
                 Text(
                     "${fmt.format(Date(e.time))} ${e.dir} $t",
                     color = c, fontFamily = FontFamily.Monospace, fontSize = 11.sp, lineHeight = 15.sp,

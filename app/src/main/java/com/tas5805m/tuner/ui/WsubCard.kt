@@ -157,7 +157,8 @@ private fun WsubDiag(w: WsubState, vm: TunerViewModel) {
     )
     val total = w.ackOk + w.ackFail
     Text(
-        "Radio master: ch ${w.ch} · ACK ${w.ackOk}/$total · tanpa ACK ${w.ackFail} · antrean penuh ${w.nomem} · gagal kirim ${w.txf} · error ${w.err}",
+        "Radio master: ch ${w.ch} · ACK ${w.ackOk}/$total · tanpa ACK ${w.ackFail} · antrean penuh ${w.nomem} · dibuang ${w.drop} · gagal kirim ${w.txf} · error ${w.err}" +
+            if (w.heap > 0L) " · heap ${w.heap / 1024} KB (min ${w.heapMin / 1024} KB)" else "",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -175,8 +176,8 @@ private fun wsubVerdict(w: WsubState): Pair<String, Boolean> {
     val total = w.ackOk + w.ackFail
     return when {
         !w.link -> "Slave belum terhubung — cek pairing, channel (master & slave harus sama) dan jarak." to true
-        w.nomem > 0L || w.err == "NO_MEM" ->
-            "Antrean ESP-NOW penuh (radio tersita Bluetooth A2DP). Build master dengan WSUB_PKT_TX lebih besar atau WSUB_FAST_RATE=1." to true
+        total >= 50L && w.ackFail * 10L > total && (w.nomem > 0L || w.drop > 0L) ->
+            "Radio master tersita Bluetooth A2DP (banyak paket tanpa ACK/antrean penuh). Pakai firmware master terbaru (paket 64, rate 24M, buang paket basi), dekatkan slave, lalu tekan Reset diagnostik." to true
         total >= 50L && w.ackFail * 10L > total ->
             "Lebih dari 10% paket tanpa ACK — dekatkan slave dan pastikan channel master = slave." to true
         total < 50L -> "Mengumpulkan data… putar musik beberapa detik." to false
