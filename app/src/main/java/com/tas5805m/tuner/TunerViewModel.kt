@@ -25,11 +25,16 @@ import com.tas5805m.tuner.data.Store
 import com.tas5805m.tuner.data.TunerState
 import com.tas5805m.tuner.data.WsubState
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import java.io.OutputStream
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -63,9 +68,31 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
     private var manualDisc = false
     private var reconnectJob: Job? = null
     private val lastLog = HashMap<String, Pair<String, Long>>()
+    private val recorder = LogRecorder(app)
+    private var bgPollJob: Job? = null
     private companion object { const val LOG_MAX = 20000 }   // ±45 mnt pada ±7 baris/dtk (4 slave: WSUBT + 4×SLAVE + 4×SLAVEDIAG + BTD…)
 
     init {
+        // 3.3.0: rekam log latar belakang — service menjaga proses hidup; polling status jalan walau tab Monitor tidak dibuka.
+        viewModelScope.launch(Dispatchers.IO) { while (isActive) { delay(2000); recorder.flush() } }
+        viewModelScope.launch {
+            store.settings.map { it.bgLog }.distinctUntilChanged().collect { on ->
+                if (on) BgLogService.start(getApplication()) else BgLogService.stop(getApplication())
+            }
+        }
+        viewModelScope.launch {
+            combine(client.link, store.settings) { l, st -> l == SppClient.Link.CONNECTED && st.bgLog }
+                .distinctUntilChanged()
+                .collect { on ->
+                    bgPollJob?.cancel()
+                    bgPollJob = if (!on) null else viewModelScope.launch {
+                        while (isActive) {
+                            if (monitorJob?.isActive != true) client.send("status")   // tab Monitor sudah polling sendiri
+                            delay(2000)
+                        }
+                    }
+                }
+        }
         viewModelScope.launch { client.lines.collect { onLine(it) } }
         viewModelScope.launch { client.tx.collect { val c = it.trim(); if (!c.equals("lvl", ignoreCase = true) && !c.equals("status", ignoreCase = true)) addLog('>', it) } }   // polling level meter ±5×/dtk tanpa balasan di log: jangan membanjiri
         viewModelScope.launch {
@@ -744,9 +771,17 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun addLog(dir: Char, text: String, time: Long = System.currentTimeMillis()) {
         _log.update { (it + LogEntry(time, dir, text)).takeLast(LOG_MAX) }
+        if (store.settings.value.bgLog) recorder.add(time, dir, text)
     }
 
+    /** Rekaman file (3.3.0): ukuran, ekspor ke [out] (lama lalu baru), hapus. */
+    fun recordingBytes(): Long = recorder.sizeBytes()
+    fun exportRecording(out: OutputStream): Boolean = recorder.copyTo(out)
+    fun clearRecording() = recorder.clear()
+
     override fun onCleared() {
+        BgLogService.stop(getApplication())
+        recorder.flush()
         client.disconnect()
         super.onCleared()
     }
