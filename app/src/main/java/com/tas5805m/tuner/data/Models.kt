@@ -170,6 +170,9 @@ data class WsubState(
     val ackOk: Long = 0,       // paket di-ACK slave
     val ackFail: Long = 0,     // paket tanpa ACK
     val nomem: Long = 0,       // antrean TX penuh
+    val drop: Long = 0,        // paket audio dibuang master (radio sibuk)
+    val heap: Long = 0,        // heap internal master bebas (byte)
+    val heapMin: Long = 0,     // heap internal terendah sejak boot (byte)
     val ch: Int = 0,           // channel Wi-Fi master
     val diag: Boolean = false, // firmware mengirim diagnostik
 ) {

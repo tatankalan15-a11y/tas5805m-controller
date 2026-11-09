@@ -123,6 +123,9 @@ object Protocol {
                             ackOk = m["ackok"]?.toLongOrNull() ?: 0L,
                             ackFail = m["ackfail"]?.toLongOrNull() ?: 0L,
                             nomem = m["nomem"]?.toLongOrNull() ?: 0L,
+                            drop = m["drop"]?.toLongOrNull() ?: 0L,
+                            heap = m["heap"]?.toLongOrNull() ?: 0L,
+                            heapMin = m["heapmin"]?.toLongOrNull() ?: 0L,
                             ch = num(m["ch"]) ?: 0,
                             diag = m.containsKey("ackok"),
                         )
