@@ -63,10 +63,11 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
     private var manualDisc = false
     private var reconnectJob: Job? = null
     private val lastLog = HashMap<String, Pair<String, Long>>()
+    private companion object { const val LOG_MAX = 20000 }   // ±45 mnt pada ±7 baris/dtk (4 slave: WSUBT + 4×SLAVE + 4×SLAVEDIAG + BTD…)
 
     init {
         viewModelScope.launch { client.lines.collect { onLine(it) } }
-        viewModelScope.launch { client.tx.collect { addLog('>', it) } }
+        viewModelScope.launch { client.tx.collect { val c = it.trim(); if (!c.equals("lvl", ignoreCase = true) && !c.equals("status", ignoreCase = true)) addLog('>', it) } }   // polling level meter ±5×/dtk tanpa balasan di log: jangan membanjiri
         viewModelScope.launch {
             var prev = SppClient.Link.IDLE
             client.link.collect { l ->
@@ -155,7 +156,11 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun onLine(line: String) {
         val rx = Protocol.parse(line)
-        if (!(rx is Rx.Level || rx is Rx.Level2) && shouldLog(line)) addLog('<', line)
+        if (!(rx is Rx.Level || rx is Rx.Level2) && line != "OK status" && shouldLog(line)) {
+            // BTEV age=<ms>: waktu kejadian = waktu terima − age (log dicocokkan per kejadian dengan baris slave)
+            val age = if (line.startsWith("BTEV ")) Regex("age=(\\d+)").find(line)?.groupValues?.get(1)?.toLongOrNull() else null
+            addLog('<', line, if (age != null) System.currentTimeMillis() - age else System.currentTimeMillis())
+        }
         when (rx) {
             is Rx.Mode -> _ui.update { s ->
                 s.copy(
@@ -737,8 +742,8 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
         return true
     }
 
-    private fun addLog(dir: Char, text: String) {
-        _log.update { (it + LogEntry(System.currentTimeMillis(), dir, text)).takeLast(1000) }
+    private fun addLog(dir: Char, text: String, time: Long = System.currentTimeMillis()) {
+        _log.update { (it + LogEntry(time, dir, text)).takeLast(LOG_MAX) }
     }
 
     override fun onCleared() {
