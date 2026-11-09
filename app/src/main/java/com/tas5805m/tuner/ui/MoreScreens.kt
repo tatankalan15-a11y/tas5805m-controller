@@ -520,7 +520,7 @@ private fun SettingsPage(vm: TunerViewModel) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        OutlinedButton(onClick = { runCatching { ctx.startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATIONS_SETTINGS)) } }) {
+        OutlinedButton(onClick = { runCatching { ctx.startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } }) {
             Text("Pengaturan baterai")
         }
     }
