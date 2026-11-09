@@ -177,6 +177,7 @@ data class Settings(
     val dynamicColor: Boolean = false,
     val autoReconnect: Boolean = true,
     val keepScreenOn: Boolean = false,
+    val bgLog: Boolean = false,   // 3.3.0: rekam log di latar belakang (foreground service + file)
     val lastAddress: String? = null,
     val lastName: String? = null,
 )
@@ -243,6 +244,7 @@ class Store(ctx: Context) {
         dynamicColor = sp.getBoolean("dynamic", false),
         autoReconnect = sp.getBoolean("autoReconnect", true),
         keepScreenOn = sp.getBoolean("keepScreen", false),
+        bgLog = sp.getBoolean("bgLog", false),
         lastAddress = sp.getString("lastAddress", null),
         lastName = sp.getString("lastName", null),
     )
@@ -254,6 +256,7 @@ class Store(ctx: Context) {
             .putBoolean("dynamic", s.dynamicColor)
             .putBoolean("autoReconnect", s.autoReconnect)
             .putBoolean("keepScreen", s.keepScreenOn)
+            .putBoolean("bgLog", s.bgLog)
             .putString("lastAddress", s.lastAddress)
             .putString("lastName", s.lastName)
             .apply()
