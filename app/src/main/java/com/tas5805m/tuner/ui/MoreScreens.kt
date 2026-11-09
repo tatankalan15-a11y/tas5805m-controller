@@ -1,5 +1,6 @@
 package com.tas5805m.tuner.ui
 
+import android.Manifest
 import android.content.Intent
 import android.os.Build
 import androidx.activity.compose.BackHandler
@@ -400,6 +401,16 @@ private fun ConsolePage(vm: TunerViewModel) {
         }
     }
 
+    val settingsNow by vm.settings.collectAsStateWithLifecycle()
+    var recBytes by remember { mutableStateOf(0L) }
+    LaunchedEffect(log.lastOrNull()?.time) { recBytes = vm.recordingBytes() }
+    val saveRecLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+        if (uri != null) {
+            val ok = runCatching { ctx.contentResolver.openOutputStream(uri)?.use { vm.exportRecording(it) } == true }.getOrDefault(false)
+            vm.showToast(if (ok) "Rekaman disimpan" else "Gagal menyimpan rekaman")
+        }
+    }
+
     SectionCard("Kirim perintah") {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(
@@ -444,7 +455,21 @@ private fun ConsolePage(vm: TunerViewModel) {
                     saveLauncher.launch("tas5805m-log-$stamp.txt")
                 },
             ) { Text("Simpan") }
+            TextButton(
+                enabled = recBytes > 0,
+                onClick = {
+                    val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+                    saveRecLauncher.launch("tas5805m-rekaman-$stamp.txt")
+                },
+            ) { Text("Simpan rekaman") }
+            TextButton(enabled = recBytes > 0, onClick = { vm.clearRecording(); recBytes = vm.recordingBytes() }) { Text("Hapus rekaman") }
         }
+        Text(
+            if (settingsNow.bgLog) "Rekaman latar belakang AKTIF · ${"%.1f".format(Locale.US, recBytes / 1048576.0)} MB di file"
+            else "Rekaman latar belakang mati (aktifkan di Lainnya → Pengaturan → Log) · ${"%.1f".format(Locale.US, recBytes / 1048576.0)} MB di file",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         LazyColumn(Modifier.fillMaxWidth().height(340.dp), state = listState) {
             items(shown) { e ->
                 val c = when (e.dir) {
@@ -482,6 +507,22 @@ private fun SettingsPage(vm: TunerViewModel) {
             SwitchRow("Warna dinamis (Material You)", "Ikuti wallpaper", st.dynamicColor) { v -> vm.store.updateSettings { it.copy(dynamicColor = v) } }
         }
         SwitchRow("Layar tetap menyala", "Berguna saat tuning sambil mendengarkan", st.keepScreenOn) { v -> vm.store.updateSettings { it.copy(keepScreenOn = v) } }
+    }
+    val ctx = LocalContext.current
+    val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    SectionCard("Log") {
+        SwitchRow("Rekam log di latar belakang", "Tetap merekam saat layar dikunci; log disimpan ke file (simpan dari Konsol)", st.bgLog) { v ->
+            vm.store.updateSettings { it.copy(bgLog = v) }
+            if (v && Build.VERSION.SDK_INT >= 33) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        Text(
+            "Jangan tutup app dari daftar aplikasi terbaru. Di Oppo/Realme/Xiaomi, izinkan app berjalan di latar belakang agar tidak dimatikan sistem.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedButton(onClick = { runCatching { ctx.startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATIONS_SETTINGS)) } }) {
+            Text("Pengaturan baterai")
+        }
     }
     SectionCard("Koneksi") {
         SwitchRow("Sambung otomatis", "Ke perangkat terakhir saat aplikasi dibuka", st.autoReconnect) { v -> vm.store.updateSettings { it.copy(autoReconnect = v) } }
