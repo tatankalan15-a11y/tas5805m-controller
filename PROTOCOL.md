@@ -136,7 +136,7 @@ Baris status (di setiap `status`, hanya env master): `WSUB peer=<mac|none> link=
 
 **Perintah yang berlaku di mode 4:** `master`, `satvol` (volume chip 1), `subvol` (level sub → slave), `subinv` (polaritas sub di slave), `xover` (HPF satelit & LPF slave 60–150 Hz). Level akhir sub dikirim ke slave = `master × subvol / 100`.
 
-**Radio (ESP-NOW, channel 1, tanpa enkripsi):** paket tipe AUDIO (mono, FIR low-pass 700 Hz, decimasi ÷16, 32 sample/paket, header memuat sample rate sumber), CTRL (≈10 Hz: level, flag polaritas, crossover), STATUS (slave → master 1 Hz: buffer, underrun, paket hilang), HELLO (slave tak terpasang, broadcast 1 Hz), PAIR (master → slave; ulang 500 ms sampai ada STATUS). Slave hanya menerima audio/kontrol dari MAC master yang dipasangkan; PAIR diterima bila slave belum terpasang atau dari master yang sama. Unpair slave: tahan tombol BOOT 3 dtk atau ketik `unpair` di serial.
+**Radio (ESP-NOW, channel 6 (default firmware 2.9.12; lihat WSUB_CHANNEL), tanpa enkripsi):** paket tipe AUDIO (mono, FIR low-pass 700 Hz, decimasi ÷16, 32 sample/paket, header memuat sample rate sumber), CTRL (≈10 Hz: level, flag polaritas, crossover), STATUS (slave → master 1 Hz: buffer, underrun, paket hilang), HELLO (slave tak terpasang, broadcast 1 Hz), PAIR (master → slave; ulang 500 ms sampai ada STATUS). Slave hanya menerima audio/kontrol dari MAC master yang dipasangkan; PAIR diterima bila slave belum terpasang atau dari master yang sama. Unpair slave: tahan tombol BOOT 3 dtk atau ketik `unpair` di serial.
 
 **Slave:** ring buffer, mulai putar saat ≥ 20 ms terisi, interpolasi ×16 ke sample rate sumber, koreksi drift ±1 sampel/4 sampel-wire, paket hilang ≤ 7 ditahan (hold), amp → Hi-Z setelah 10 dtk tanpa audio. Volume slave 0 sampai master mengirim level.
 
@@ -151,6 +151,18 @@ Baris status (di setiap `status`, hanya env master): `WSUB peer=<mac|none> link=
 Kunci tambahan di baris `WSUB`: `lat` (ms latensi sub = latensi satelit + trim), `trim`, `txf`, `err`, `ackok`, `ackfail`, `nomem`, `ch`. Aplikasi mengabaikan kunci yang tidak ada (firmware lama tetap jalan).
 
 Baris per slave dari master: `WSUBS slot=0 mac=AA:.. link=1 rxa=86 rxc=10 rej=0 stx=0 fill=.. und=.. gap=..` — `rxa/rxc` = paket audio/ctrl diterima slave per detik (normal ≈ 86 / ≈ 10), `rej` = ditolak, `stx` = STATUS gagal kirim. Di Log aplikasi ditampilkan sebagai `SLAVE …`.
+
+Baris diagnostik jitter slave (paket `WSUB_T_DIAG` = 6, slave → master tiap 1 dtk; dicetak hanya bila slave mengirimnya): `WSUBD slot=0 mac=AA:.. g40=.. g60=.. g80=.. g100=.. g200=.. g500=.. gmax=.. adapt=.. fmin=.. jmax=.. pkt=.. est=97.5 age=..` — `gN` = penghitung **kumulatif** gap kedatangan audio > N ms (ambil selisih antar baris), `gmax` = gap terbesar (ms) sejak baris sebelumnya, `adapt/fmin/jmax` = margin buffer dalam sample wire, `est` = estimasi latensi (ms), `age` = umur data (ms). Di Log aplikasi ditampilkan sebagai `SLAVEDIAG …`. Aman terhadap versi lama: master lama mengabaikan tipe 6, slave lama tidak mengirimnya.
+
+Firmware 2.9.11 (WROVER STABLE) menambah di balasan `status`:
+- `VER fw=2.9.11 role=master heap=<internal bebas> psram=<PSRAM bebas>`
+- `WSUBT linked=<slave tertaut> lim=<jatah menggantung per slave> nomem=<kejadian NO_MEM> nmrec=<NO_MEM yang pulih lewat retry> drop=<paket dibuang semua slave> pdrop=a,b,c,d (dibuang per slot) latb=<basis ms = SAT+trim> latc=<latensi yang dikirim ke semua sub> aligned=1 extra_max=<batas tambahan ms>`
+- `SLAVE …` ditambah `tak/taf` (ACK sukses/gagal per slave), `tdrop` (paket dibuang untuk slave itu), `tin` (menggantung).
+- `SLAVEDIAG …` ditambah `need=<latensi yang diminta jitter slave, ms>` dan `fw=2.9.<n>` (versi firmware slave; `?` = slave lama).
+- `SLAVEDIAG … fillmin=<ms>`: isi buffer slave terkecil sejak baris sebelumnya (≈ sisa margin; mendekati 0 = hampir/sedang underrun). Tiap underrun slave juga muncul sebagai `BTEV age=<ms> ev=underrun slot=<n> n=<jumlah> gap=<ms sejak paket terakhir>` (stempel waktu = saat underrun terjadi). Perintah `status` dan balasan `OK status` tidak dicatat di Log (kapasitas Log 20000 baris).
+- Penyelarasan sub: CTRL membawa flag `WSUB_CTRL_ALIGNED` (0x02); `lat_ms` = latensi TUNGGAL semua sub = max(basis, `need` terbesar) dibatasi `basis + WSUB_ALIGN_MAX_EXTRA_MS`, naik maks 8 ms/dtk, turun 1 ms/dtk. Slave dengan flag ini memakai `lat_ms` saja (adapt lokal hanya dilaporkan lewat `need`).
+
+Diagnostik sisi Bluetooth dari master (balasan `status`, firmware r11): `BTD g40=.. g60=.. g80=.. g100=.. g200=.. g500=.. conn=.. audio=.. srate=.. rssi=.. rssi_age=.. evdrop=..` — `gN` = penghitung kumulatif gap antar panggilan tap A2DP > N ms (sama definisinya dengan `SLAVEDIAG`, resolusi 1 ms), `conn`/`audio` = state A2DP terakhir (conn 0–3 = DISCONNECTED…DISCONNECTING; audio 0=SUSPEND 1=STOPPED 2=STARTED), `srate` = sample rate sumber, `rssi` = RSSI delta BT (0 dan `rssi_age=-1` bila tidak tersedia), `evdrop` = event hilang karena ring penuh, `hk` = bitmask hook yang terpasang (1 conn, 2 audio, 4 rate, 8 rssi; 15 = semua; bit hilang berarti versi pustaka ESP32-A2DP tidak punya API itu). Event bertimestamp: `BTEV age=<ms lalu> ev=gap ms=<n>` (tiap gap > 80 ms), `ev=conn state=…`, `ev=audio state=…`, `ev=rate hz=…`. Aplikasi memundurkan stempel waktu baris `BTEV` sebesar `age`, jadi urutan baris di Log bisa sedikit tidak monoton.
 
 ### Multi-sub (app ≥ 3.1, firmware multi-peer)
 

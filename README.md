@@ -1,4 +1,4 @@
-# TAS5805M Controller **3.2.2**
+# TAS5805M Controller **3.2.3**
 
 Aplikasi Android untuk tuning **ESP32 + TAS5805M** lewat Bluetooth **SPP** (`TAS5805M-CTRL`).
 
@@ -86,3 +86,7 @@ MIT — lihat `LICENSE`.
 ## Perubahan 3.2.2
 
 - Log Konsol bisa **disimpan ke file** `tas5805m-log-<tanggal>.txt` (seluruh isi log sesuai filter aktif, hingga 1000 baris, dengan tanggal lengkap). Memakai pemilih file sistem, tanpa izin penyimpanan.
+
+## Perubahan 3.2.3
+
+- Perbaikan build: komentar KDoc di `TunerViewModel.kt` mengandung urutan penutup komentar sehingga compile gagal ("Expecting member declaration"). Dikoreksi.
