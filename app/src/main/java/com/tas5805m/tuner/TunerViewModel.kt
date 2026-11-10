@@ -23,6 +23,7 @@ import com.tas5805m.tuner.data.Rx
 import com.tas5805m.tuner.data.Settings
 import com.tas5805m.tuner.data.Store
 import com.tas5805m.tuner.data.TunerState
+import com.tas5805m.tuner.data.SubVoice
 import com.tas5805m.tuner.data.WsubState
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
@@ -236,6 +237,9 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
                     )
                 )
             }
+            is Rx.WsubVoiceLine -> _ui.update { s ->
+                if (fresh("subvoice", 2000)) s else s.copy(subVoice = rx.v)   // jangan timpa slider yang sedang digeser
+            }
             is Rx.WsubPeerLine -> _ui.update { s ->
                 val cur = s.wsub ?: WsubState()
                 val rest = cur.peers.filterNot { it.mac.equals(rx.peer.mac, ignoreCase = true) || it.slot == rx.peer.slot }
@@ -397,6 +401,21 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
         touch("wsubtrim")
         client.send("wsub_trim $t", "wsub_trim")   // latest-wins
         viewModelScope.launch { delay(900); client.send("status") }
+    }
+
+    private var voiceJob: Job? = null
+
+    /** Voicing sub (firmware ≥ 2.9.14). Update lokal langsung, kirim ke master setelah 250 ms tanpa perubahan (hemat radio & flash). */
+    fun setSubVoice(v: SubVoice) {
+        _ui.update { it.copy(subVoice = v) }
+        touch("subvoice")
+        voiceJob?.cancel()
+        voiceJob = viewModelScope.launch {
+            delay(250)
+            client.send("wsub_voice ${if (v.on) 1 else 0} ${v.hpf} ${v.pkHz} ${v.pkDb10} ${v.pkQ10} ${v.harm} ${v.limit}", "wsub_voice")
+            delay(900)
+            client.send("status")
+        }
     }
 
     fun wsubTrimBy(delta: Int) = wsubTrim((_ui.value.wsub?.trim ?: 0) + delta)
