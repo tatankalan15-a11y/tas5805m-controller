@@ -85,6 +85,7 @@ data class TunerState(
     val sub: Int = 90,
     val ctr: Int = 85,         // level center, hanya mode 3 (firmware ≥ 2.6)
     val subInv: Boolean = false,        // polaritas sub dibalik (firmware ≥ 2.8)
+    val subVoice: SubVoice? = null,     // voicing sub (firmware ≥ 2.9.14)
     val wsub: WsubState? = null,        // status sub wireless (env wireless_master, firmware ≥ 2.9)
     val standbyMin: Int = 0,            // auto-standby (menit), 0 = mati
     val standbyActive: Boolean = false, // chip sedang di-standby-kan firmware
@@ -157,6 +158,17 @@ data class WsubPeer(
 /** Status sub wireless — multi-sub hingga [maxPeers] (default 4).
  *  Kompatibel firmware lama: satu `peer` saja → [peers] berisi 0..1 entri.
  */
+/** Voicing sub (firmware ≥ 2.9.14): HPF subsonic, boost parametrik, harmonik psikoakustik, limiter. */
+data class SubVoice(
+    val on: Boolean = false,
+    val hpf: Int = 32,        // Hz, 20..60
+    val pkHz: Int = 55,       // Hz, 30..120
+    val pkDb10: Int = 0,      // ×10 dB, −60..+90
+    val pkQ10: Int = 10,      // ×10, 5..30
+    val harm: Int = 0,        // %, 0..100
+    val limit: Int = 100,     // % dari full-scale, 50..100
+)
+
 data class WsubState(
     val peers: List<WsubPeer> = emptyList(),
     val maxPeers: Int = 4,

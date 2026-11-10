@@ -24,6 +24,7 @@ sealed interface Rx {
     data class Fx(val inv: Boolean, val stby: Int, val sb: Boolean) : Rx   // polaritas sub, auto-standby
     data class EqC(val gains: List<Int>) : Rx   // EQ center (mode 3)
     data class Wsub(val state: WsubState) : Rx   // sub wireless (multi)
+    data class WsubVoiceLine(val v: SubVoice) : Rx   // baris WSUBV (voicing sub)
     data class WsubPeerLine(val peer: WsubPeer) : Rx  // baris WSUBP per slot
     data class WsubStat(val slot: Int, val mac: String, val rxAudio: Int, val rxCtrl: Int, val rej: Int, val stx: Int) : Rx  // baris WSUBS (diagnostik slave)
     data class EqS(val gains: List<Int>) : Rx   // EQ sub (mode 3)
@@ -143,6 +144,21 @@ object Protocol {
                         rxCtrl = num(m["rxc"]) ?: -1,
                         rej = num(m["rej"]) ?: 0,
                         stx = num(m["stx"]) ?: 0,
+                    )
+                }
+                "WSUBV" -> {
+                    // WSUBV on=1 hpf=32 pk=55 db=40 q=10 harm=40 lim=80
+                    val m = kv(rest)
+                    Rx.WsubVoiceLine(
+                        SubVoice(
+                            on = num(m["on"]) == 1,
+                            hpf = (num(m["hpf"]) ?: 32).coerceIn(20, 60),
+                            pkHz = (num(m["pk"]) ?: 55).coerceIn(30, 120),
+                            pkDb10 = (num(m["db"]) ?: 0).coerceIn(-60, 90),
+                            pkQ10 = (num(m["q"]) ?: 10).coerceIn(5, 30),
+                            harm = (num(m["harm"]) ?: 0).coerceIn(0, 100),
+                            limit = (num(m["lim"]) ?: 100).coerceIn(50, 100),
+                        )
                     )
                 }
                 "WSUBP" -> {
