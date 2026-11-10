@@ -53,7 +53,7 @@ data class Preset(
             return Preset(
                 id = o.optString("id", UUID.randomUUID().toString()),
                 name = o.optString("name", "Preset"),
-                mode = o.optInt("mode", 0).coerceIn(0, 2),
+                mode = o.optInt("mode", 0).coerceIn(0, 4),
                 master = o.optInt("master", 90).coerceIn(0, 100),
                 gainCode = o.optInt("gain", 18).coerceIn(0, 31),
                 xover = o.optInt("xover", 150).coerceIn(60, 150),
@@ -154,7 +154,7 @@ object FactoryPresets {
      */
     val party = system(
         name = "Party",
-        mode = 1,
+        mode = 4,
         master = 87,   // turun 3 dB demi headroom (boost treble +3 dB di 4 band)
         xover = 120,
         sat = 85,
@@ -167,7 +167,7 @@ object FactoryPresets {
     /** Party Dalam: bass lebih besar & dalam (boost lebih rendah, harmonik lebih banyak). HPF 36 Hz agar cone 6,5" aman. */
     val partyDeep = system(
         name = "Party Dalam",
-        mode = 1,
+        mode = 4,
         master = 87,
         xover = 120,
         sat = 85,
@@ -180,7 +180,7 @@ object FactoryPresets {
     /** Gaya Harman Kardon Onyx: hangat, bass penuh, mid sedikit mundur, treble halus. (Pendekatan, bukan hasil ukur.) */
     val harmanOnyx = system(
         name = "Harman Onyx",
-        mode = 1,
+        mode = 4,
         master = 86,
         xover = 120,
         sat = 85,
@@ -193,7 +193,7 @@ object FactoryPresets {
     /** Gaya Bose: bass dalam & tebal, mid halus, treble digulung (tidak tajam). */
     val boseWarm = system(
         name = "Bose Warm",
-        mode = 1,
+        mode = 4,
         master = 86,
         xover = 120,
         sat = 85,
@@ -206,7 +206,7 @@ object FactoryPresets {
     /** Gaya JBL: bentuk V, bass punchy, mid ditarik, presence & treble berkilau. */
     val jblPunch = system(
         name = "JBL Punch",
-        mode = 1,
+        mode = 4,
         master = 88,
         xover = 120,
         sat = 85,
@@ -216,6 +216,19 @@ object FactoryPresets {
         subVoice = SubVoice(on = true, hpf = 38, pkHz = 70, pkDb10 = 40, pkQ10 = 13, harm = 40, limit = 85),
     )
 
+    /** Movie Wireless: dialog jelas, LFE dari sub (HPF 32 Hz, boost 48 Hz, limiter longgar), treble datar. Nilai awal, tuning dengan telinga. */
+    val movieWireless = system(
+        name = "Movie Wireless",
+        mode = 4,
+        master = 83,   // turun 2 dB: pelebaran stereo menaikkan sinyal sisi (L-R) sampai ~+3 dB
+        xover = 100,
+        sat = 85,
+        sub = 86,
+        mix = listOf(1.20f, -0.20f, -0.20f, 1.20f),   // lebar stereo ~40%: sinyal tengah (dialog) tetap 0 dB
+        eq = listOf(0, 0, 0, 0, 0, -1, -1, 0, 0, 1, 2, 1, 0, 0, 0),
+        subVoice = SubVoice(on = true, hpf = 32, pkHz = 48, pkDb10 = 30, pkQ10 = 12, harm = 25, limit = 88),
+    )
+
     val all: List<Preset> = listOf(
         soundbar21,
         party,
@@ -223,6 +236,7 @@ object FactoryPresets {
         harmanOnyx,
         boseWarm,
         jblPunch,
+        movieWireless,
         indoor,
         outdoor,
         system("Soundbar Stereo", mode = 0, master = 85, mix = listOf(1f, 0f, 0f, 1f)),
