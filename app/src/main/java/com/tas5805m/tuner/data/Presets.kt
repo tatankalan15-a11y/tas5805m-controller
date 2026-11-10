@@ -29,6 +29,7 @@ data class Preset(
     val eqOnly: Boolean = false,
     val factory: Boolean = false,
     val created: Long = System.currentTimeMillis(),
+    val subVoice: SubVoice? = null,   // voicing sub (firmware ≥ 2.9.14); hanya preset pabrik, tidak disimpan ke JSON
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id); put("name", name); put("mode", mode); put("master", master)
@@ -87,6 +88,7 @@ object FactoryPresets {
         sub: Int = 70,
         mix: List<Float> = listOf(0.60f, 0.40f, 0.40f, 0.60f),
         eq: List<Int> = List(EQ_BANDS) { 0 },
+        subVoice: SubVoice? = null,
     ) = Preset(
         id = "system_" + name.lowercase().replace(' ', '_').replace("+", "p"),
         name = name,
@@ -104,6 +106,7 @@ object FactoryPresets {
         eqOnly = false,
         factory = true,
         created = 0L,
+        subVoice = subVoice,
     )
 
     /** Soundbar: 2× satelit 4Ω + sub 4Ω, xover 150, crossfeed sedang, high sedikit diangkat. */
@@ -128,15 +131,15 @@ object FactoryPresets {
         sat = 85,
         sub = 58,
         mix = listOf(0.70f, 0.30f, 0.30f, 0.70f), // crossfeed 30%
-        // sedikit potong 80–125 Hz (boomy ruangan), presence halus
-        eq = listOf(0, 0, 0, -1, -2, -1, 0, 0, 0, 1, 1, 1, 1, 1, 0),
+        // potong 125–315 Hz (boomy ruangan; 80 Hz sudah di bawah HPF satelit), presence halus
+        eq = listOf(0, 0, 0, 0, -1, -2, -1, 0, 0, 1, 1, 1, 1, 1, 0),
     )
 
     /** Outdoor: sub + presence high, crossfeed ringan, headroom lebih. */
     val outdoor = system(
         name = "Outdoor",
         mode = 1,
-        master = 90,
+        master = 87,   // 2.9.14+: turun 3 dB demi headroom (boost EQ sampai +4 dB)
         xover = 120,
         sat = 80,
         sub = 85,
@@ -145,11 +148,86 @@ object FactoryPresets {
         eq = listOf(0, 0, 0, 1, 2, 1, 0, 0, 1, 2, 3, 3, 4, 3, 2),
     )
 
+    /**
+     * Party (gaya speaker pesta): bass punchy & rapat, tengah sedikit ditarik, presence + treble berkilau, level master tinggi.
+     * Satelit: band 0..2 diabaikan di mode 2.1; bass satelit hanya sedikit (80–125 Hz). Sub: voicing 2.9.14 (HPF + boost 60 Hz + harmonik + limiter).
+     */
+    val party = system(
+        name = "Party",
+        mode = 1,
+        master = 87,   // turun 3 dB demi headroom (boost treble +3 dB di 4 band)
+        xover = 120,
+        sat = 85,
+        sub = 80,
+        mix = listOf(0.85f, 0.15f, 0.15f, 0.85f),   // stereo lebar, crossfeed ringan
+        eq = listOf(0, 0, 0, 2, 3, 1, -1, -2, -2, 0, 2, 3, 3, 3, 3),
+        subVoice = SubVoice(on = true, hpf = 34, pkHz = 60, pkDb10 = 50, pkQ10 = 11, harm = 50, limit = 85),
+    )
+
+    /** Party Dalam: bass lebih besar & dalam (boost lebih rendah, harmonik lebih banyak). HPF 36 Hz agar cone 6,5" aman. */
+    val partyDeep = system(
+        name = "Party Dalam",
+        mode = 1,
+        master = 87,
+        xover = 120,
+        sat = 85,
+        sub = 85,
+        mix = listOf(0.85f, 0.15f, 0.15f, 0.85f),
+        eq = listOf(0, 0, 0, 2, 3, 1, -1, -2, -2, 0, 2, 3, 3, 3, 3),
+        subVoice = SubVoice(on = true, hpf = 36, pkHz = 50, pkDb10 = 40, pkQ10 = 10, harm = 70, limit = 82),
+    )
+
+    /** Gaya Harman Kardon Onyx: hangat, bass penuh, mid sedikit mundur, treble halus. (Pendekatan, bukan hasil ukur.) */
+    val harmanOnyx = system(
+        name = "Harman Onyx",
+        mode = 1,
+        master = 86,
+        xover = 120,
+        sat = 85,
+        sub = 78,
+        mix = listOf(0.75f, 0.25f, 0.25f, 0.75f),
+        eq = listOf(0, 0, 0, 2, 3, 1, 0, -1, -1, 0, 1, 1, 1, 0, -1),
+        subVoice = SubVoice(on = true, hpf = 36, pkHz = 65, pkDb10 = 40, pkQ10 = 12, harm = 40, limit = 85),
+    )
+
+    /** Gaya Bose: bass dalam & tebal, mid halus, treble digulung (tidak tajam). */
+    val boseWarm = system(
+        name = "Bose Warm",
+        mode = 1,
+        master = 86,
+        xover = 120,
+        sat = 85,
+        sub = 82,
+        mix = listOf(0.70f, 0.30f, 0.30f, 0.70f),
+        eq = listOf(0, 0, 0, 3, 3, 2, 1, 0, -1, -1, 0, 1, 0, -1, -2),
+        subVoice = SubVoice(on = true, hpf = 35, pkHz = 55, pkDb10 = 55, pkQ10 = 10, harm = 55, limit = 85),
+    )
+
+    /** Gaya JBL: bentuk V, bass punchy, mid ditarik, presence & treble berkilau. */
+    val jblPunch = system(
+        name = "JBL Punch",
+        mode = 1,
+        master = 88,
+        xover = 120,
+        sat = 85,
+        sub = 80,
+        mix = listOf(0.85f, 0.15f, 0.15f, 0.85f),
+        eq = listOf(0, 0, 0, 2, 3, 1, 0, -2, -2, -1, 1, 2, 3, 3, 2),
+        subVoice = SubVoice(on = true, hpf = 38, pkHz = 70, pkDb10 = 40, pkQ10 = 13, harm = 40, limit = 85),
+    )
+
     val all: List<Preset> = listOf(
         soundbar21,
+        party,
+        partyDeep,
+        harmanOnyx,
+        boseWarm,
+        jblPunch,
         indoor,
         outdoor,
         system("Soundbar Stereo", mode = 0, master = 85, mix = listOf(1f, 0f, 0f, 1f)),
+        // Catatan: band 20/32/50 Hz (3 angka pertama) diabaikan firmware di mode 2.1; efeknya hanya di mode Stereo.
+        // Untuk bass di 2.1 gunakan voicing sub.
         eq("Flat", List(EQ_BANDS) { 0 }),
         eq("Bass boost", listOf(6, 6, 5, 4, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0)),
         eq("Vokal", listOf(-3, -3, -2, -1, 0, 1, 2, 3, 3, 2, 1, 0, -1, -1, -2)),
