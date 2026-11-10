@@ -34,7 +34,7 @@ import kotlin.math.roundToInt
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun OutputScreen(s: TunerState, vm: TunerViewModel) {
-    if (s.wsub != null) WsubCard(s, vm)
+    if (s.wsub != null) { WsubCard(s, vm); SubVoiceCard(s, vm) }
 
     if (s.mode.isTwoOne) {
         val where = when (s.mode) {
