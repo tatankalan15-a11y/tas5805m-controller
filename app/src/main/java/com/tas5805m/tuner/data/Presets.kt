@@ -31,6 +31,9 @@ data class Preset(
     val created: Long = System.currentTimeMillis(),
     val subVoice: SubVoice? = null,   // voicing sub (firmware ≥ 2.9.14); hanya preset pabrik, tidak disimpan ke JSON
 ) {
+    /** Preset EQ-saja cocok untuk semua mode; preset sistem hanya untuk mode yang sama dengan perangkat. */
+    fun fitsMode(m: AudioMode): Boolean = eqOnly || mode == m.code
+
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id); put("name", name); put("mode", mode); put("master", master)
         put("gain", gainCode); put("xover", xover); put("sat", sat); put("sub", sub)
