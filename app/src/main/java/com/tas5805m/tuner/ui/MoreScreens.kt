@@ -56,6 +56,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -187,6 +188,7 @@ private fun PresetsPage(s: TunerState, vm: TunerViewModel) {
                 p,
                 "${AudioMode.from(p.mode).short} · master ${p.master}% · ${if (p.eqBiamp) "EQ biamp" else "EQ linked"} · ${fmt.format(Date(p.created))}",
                 onApply = { vm.applyPreset(p) },
+                enabled = p.fitsMode(s.mode),
                 onOverwrite = { vm.overwrite(p) },
                 onShare = { share(vm.store.exportJson(listOf(p))) },
                 onDelete = { delTarget = p },
@@ -196,7 +198,13 @@ private fun PresetsPage(s: TunerState, vm: TunerViewModel) {
 
     SectionCard("EQ bawaan") {
         FactoryPresets.all.forEach { p ->
-            PresetRow(p, "Hanya EQ · tidak mengubah volume atau mode", onApply = { vm.applyPreset(p) })
+            PresetRow(
+                p,
+                if (p.eqOnly) "Hanya EQ · tidak mengubah volume atau mode"
+                else "${AudioMode.from(p.mode).short} · preset sistem (mode, level, EQ)",
+                onApply = { vm.applyPreset(p) },
+                enabled = p.fitsMode(s.mode),
+            )
         }
     }
 
@@ -242,6 +250,7 @@ private fun PresetRow(
     p: Preset,
     subtitle: String,
     onApply: () -> Unit,
+    enabled: Boolean = true,
     onOverwrite: (() -> Unit)? = null,
     onShare: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
@@ -251,14 +260,14 @@ private fun PresetRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Column(Modifier.weight(1f)) {
+        Column(Modifier.weight(1f).alpha(if (enabled) 1f else 0.38f)) {
             Text(p.name, style = MaterialTheme.typography.titleSmall)
             Text(subtitle, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (onOverwrite != null) IconButton(onClick = onOverwrite) { Icon(Icons.Rounded.Save, contentDescription = "Timpa dengan setelan sekarang") }
         if (onShare != null) IconButton(onClick = onShare) { Icon(Icons.Rounded.Share, contentDescription = "Bagikan") }
         if (onDelete != null) IconButton(onClick = onDelete) { Icon(Icons.Rounded.Delete, contentDescription = "Hapus") }
-        FilledTonalButton(onClick = onApply) { Text("Terapkan") }
+        FilledTonalButton(onClick = onApply, enabled = enabled) { Text("Terapkan") }
     }
 }
 

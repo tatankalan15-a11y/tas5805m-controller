@@ -149,7 +149,7 @@ fun EqScreen(s: TunerState, vm: TunerViewModel) {
     SectionCard("Preset EQ cepat") {
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FactoryPresets.all.forEach { p ->
-                AssistChip(onClick = { vm.applyPreset(p) }, label = { Text(p.name) })
+                AssistChip(onClick = { vm.applyPreset(p) }, enabled = p.fitsMode(s.mode), label = { Text(p.name) })
             }
         }
     }

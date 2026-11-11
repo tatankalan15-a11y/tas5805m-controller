@@ -175,13 +175,24 @@ private fun MainScaffold(vm: TunerViewModel, snack: SnackbarHostState) {
                 )
                 AssistChip(
                     onClick = { vm.applySoundbar21() },
+                    enabled = com.tas5805m.tuner.data.FactoryPresets.soundbar21.fitsMode(s.mode),
                     label = { Text("Soundbar 2.1") },
                     colors = AssistChipDefaults.assistChipColors(
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
                     ),
                 )
                 AssistChip(
+                    onClick = { vm.applyParty() },
+                    enabled = com.tas5805m.tuner.data.FactoryPresets.party.fitsMode(s.mode),
+                    label = { Text("Party") },
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    ),
+                )
+                AssistChip(onClick = { vm.applyParty(deep = true) }, enabled = com.tas5805m.tuner.data.FactoryPresets.partyDeep.fitsMode(s.mode), label = { Text("Party Dalam") })
+                AssistChip(
                     onClick = { vm.applyIndoor() },
+                    enabled = com.tas5805m.tuner.data.FactoryPresets.indoor.fitsMode(s.mode),
                     label = { Text("Indoor") },
                     colors = AssistChipDefaults.assistChipColors(
                         containerColor = MaterialTheme.colorScheme.secondaryContainer,
@@ -189,6 +200,7 @@ private fun MainScaffold(vm: TunerViewModel, snack: SnackbarHostState) {
                 )
                 AssistChip(
                     onClick = { vm.applyOutdoor() },
+                    enabled = com.tas5805m.tuner.data.FactoryPresets.outdoor.fitsMode(s.mode),
                     label = { Text("Outdoor") },
                     colors = AssistChipDefaults.assistChipColors(
                         containerColor = MaterialTheme.colorScheme.tertiaryContainer,
