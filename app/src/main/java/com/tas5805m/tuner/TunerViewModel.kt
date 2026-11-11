@@ -715,7 +715,11 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
         showToast("Preset diperbarui")
     }
 
-    fun applyPreset(p: Preset) {
+    fun applyPreset(p: Preset): Boolean {
+        if (!p.fitsMode(_ui.value.mode)) {
+            showToast("Preset \"${p.name}\" untuk mode ${AudioMode.from(p.mode).short}; perangkat sedang ${_ui.value.mode.short}")
+            return false
+        }
         val ext = _ui.value.hasExt
         val target = if (p.eqOnly) _ui.value.mode else AudioMode.from(p.mode)
         if (!p.eqOnly) {
@@ -739,18 +743,25 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
             client.send("eqm ${ns.cliCode}")
         }
         applyEqCurve(p.eqL, if (_ui.value.eq.biamp || (!p.eqOnly && p.eqBiamp)) p.eqR else p.eqL)
+        p.subVoice?.let { if (_ui.value.wsub != null) setSubVoice(it) }   // voicing sub (firmware ≥ 2.9.14)
         showToast("Preset \"${p.name}\" diterapkan")
         viewModelScope.launch { delay(900); client.send("status"); client.send("eqdump") }
+        return true
     }
 
     /** Satu ketuk: mode 2-chip + xover 150 + crossfeed sedang + balance sat/sub untuk Samsung+ATP3. */
     fun applySoundbar21() {
-        applyPreset(com.tas5805m.tuner.data.FactoryPresets.soundbar21)
+        if (!applyPreset(com.tas5805m.tuner.data.FactoryPresets.soundbar21)) return
         viewModelScope.launch {
             delay(400)
             client.send("save")
             _ui.update { it.copy(saved = true) }
         }
+    }
+
+    /** Satu ketuk: gaya speaker pesta (satelit + voicing sub). Tidak otomatis Save NVS agar bisa dibandingkan; voicing sub tersimpan sendiri di master. */
+    fun applyParty(deep: Boolean = false) {
+        applyPreset(if (deep) com.tas5805m.tuner.data.FactoryPresets.partyDeep else com.tas5805m.tuner.data.FactoryPresets.party)
     }
 
     fun applyIndoor() {
