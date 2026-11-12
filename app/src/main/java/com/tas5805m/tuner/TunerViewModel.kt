@@ -15,7 +15,9 @@ import com.tas5805m.tuner.data.EQ_MIN
 import com.tas5805m.tuner.data.XOVER_BANDS
 import com.tas5805m.tuner.data.EqState
 import com.tas5805m.tuner.data.FAULT_DEFS
-import com.tas5805m.tuner.data.FaultEvent
+import com.tas5805m.tuner.data.FaultIncident
+import com.tas5805m.tuner.data.FaultIncidents
+import com.tas5805m.tuner.data.WsubSeen
 import com.tas5805m.tuner.data.LogEntry
 import com.tas5805m.tuner.data.Preset
 import com.tas5805m.tuner.data.Protocol
@@ -24,6 +26,9 @@ import com.tas5805m.tuner.data.Settings
 import com.tas5805m.tuner.data.Store
 import com.tas5805m.tuner.data.TunerState
 import com.tas5805m.tuner.data.SubVoice
+import com.tas5805m.tuner.data.DiagReport
+import com.tas5805m.tuner.data.DiagSummary
+import com.tas5805m.tuner.data.WsubTrendPt
 import com.tas5805m.tuner.data.WsubState
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
@@ -66,6 +71,7 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
     private var pingSentAt = 0L
     private var monitorJob: Job? = null
     private var autoTried = false
+    private var savedIncidentSig = 0   // harus dideklarasikan sebelum init (coroutine di init bisa langsung berjalan)
     private var manualDisc = false
     private var reconnectJob: Job? = null
     private val lastLog = HashMap<String, Pair<String, Long>>()
@@ -74,6 +80,9 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
     private companion object { const val LOG_MAX = 20000 }   // ±45 mnt pada ±7 baris/dtk (4 slave: WSUBT + 4×SLAVE + 4×SLAVEDIAG + BTD…)
 
     init {
+        val loadedIncidents = FaultIncidents.closeTruncated(store.loadFaultIncidents()).list
+        _ui.update { it.copy(faultIncidents = loadedIncidents) }
+        savedIncidentSig = incidentSig(loadedIncidents)
         // 3.3.0: rekam log latar belakang — service menjaga proses hidup; polling status jalan walau tab Monitor tidak dibuka.
         viewModelScope.launch(Dispatchers.IO) { while (isActive) { delay(2000); recorder.flush() } }
         viewModelScope.launch {
@@ -95,14 +104,15 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
                 }
         }
         viewModelScope.launch { client.lines.collect { onLine(it) } }
-        viewModelScope.launch { client.tx.collect { val c = it.trim(); if (!c.equals("lvl", ignoreCase = true) && !c.equals("status", ignoreCase = true)) addLog('>', it) } }   // polling level meter ±5×/dtk tanpa balasan di log: jangan membanjiri
+        viewModelScope.launch { client.tx.collect { val c = it.trim(); if (!c.equals("lvl", ignoreCase = true) && !c.equals("wlvl", ignoreCase = true) && !c.equals("status", ignoreCase = true) && !(c.equals("fault", ignoreCase = true) && _ui.value.faultAuto)) addLog('>', it) } }   // polling level meter ±5×/dtk tanpa balasan di log: jangan membanjiri
         viewModelScope.launch {
             var prev = SppClient.Link.IDLE
             client.link.collect { l ->
                 if (l == SppClient.Link.CONNECTED && prev != SppClient.Link.CONNECTED) onConnected()
                 if (l != SppClient.Link.CONNECTED) {
                     stopMonitor()
-                    _ui.update { it.copy(synced = false, hasExt = false, hasV3 = false, hasLvl2 = false, wsub = null) }
+                    _ui.update { it.copy(synced = false, hasExt = false, hasV3 = false, hasLvl2 = false, hasWlvl = false, wsubLvl = emptyMap(), wsubPeak = emptyMap(), wsubTrend = emptyMap(), wsubSeen = emptyMap(), wsubTiming = null, faultsReadMs = 0L, faultIncidents = FaultIncidents.closeTruncated(it.faultIncidents).list, wsub = null) }
+                    persistIncidents()
                     // Putus tanpa diminta pengguna (ESP32 reboot / di luar jangkauan) → coba sambung ulang.
                     if (prev == SppClient.Link.CONNECTED && !manualDisc) scheduleReconnect()
                 }
@@ -184,7 +194,7 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun onLine(line: String) {
         val rx = Protocol.parse(line)
-        if (!(rx is Rx.Level || rx is Rx.Level2) && line != "OK status" && shouldLog(line)) {
+        if (!(rx is Rx.Level || rx is Rx.Level2 || rx is Rx.WsubLevels) && line != "OK status" && shouldLog(line)) {
             // BTEV age=<ms>: waktu kejadian = waktu terima − age (log dicocokkan per kejadian dengan baris slave)
             val age = if (line.startsWith("BTEV ")) Regex("age=(\\d+)").find(line)?.groupValues?.get(1)?.toLongOrNull() else null
             addLog('<', line, if (age != null) System.currentTimeMillis() - age else System.currentTimeMillis())
@@ -216,7 +226,7 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
                 val old = s.wsub?.peers.orEmpty()
                 val peers = rx.state.peers.map { p ->
                     val o = old.firstOrNull { it.mac.equals(p.mac, ignoreCase = true) }
-                    if (o != null) p.copy(rxAudio = o.rxAudio, rxCtrl = o.rxCtrl, rej = o.rej, stx = o.stx) else p
+                    if (o != null) p.copy(rxAudio = o.rxAudio, rxCtrl = o.rxCtrl, rej = o.rej, stx = o.stx, flt = o.flt, fcnt = o.fcnt, diag = o.diag, upS = o.upS, rst = o.rst, rssi = o.rssi) else p
                 }
                 val keep = fresh("wsubtrim", 1500)   // jangan timpa trim yang baru diketuk dengan status lama
                 val cur = s.wsub
@@ -227,15 +237,42 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
             is Rx.WsubStat -> _ui.update { s ->
                 val cur = s.wsub
                 if (cur == null) s
-                else s.copy(
-                    wsub = cur.copy(
-                        peers = cur.peers.map { p ->
-                            if (p.mac.equals(rx.mac, ignoreCase = true))
-                                p.copy(rxAudio = rx.rxAudio, rxCtrl = rx.rxCtrl, rej = rx.rej, stx = rx.stx)
-                            else p
-                        }
+                else {
+                    val peers = cur.peers.map { p ->
+                        if (p.mac.equals(rx.mac, ignoreCase = true))
+                            p.copy(rxAudio = rx.rxAudio, rxCtrl = rx.rxCtrl, rej = rx.rej, stx = rx.stx, flt = rx.flt, fcnt = rx.fcnt, upS = rx.up, rst = rx.rst, rssi = rx.rssi)
+                        else p
+                    }
+                    val np = peers.firstOrNull { it.mac.equals(rx.mac, ignoreCase = true) }
+                    // tren per slave (≈ 2 dtk/titik, 90 titik) untuk sparkline & penilaian kesehatan
+                    val trend = if (np == null) s.wsubTrend else {
+                        val pts = s.wsubTrend[np.slot].orEmpty() +
+                            WsubTrendPt(System.currentTimeMillis(), np.fillMs, np.rxAudio, np.und, np.gap, s.wsubLvl[np.slot], np.upS, np.rssi)
+                        s.wsubTrend + (np.slot to pts.takeLast(90))
+                    }
+                    val newWsub = cur.copy(peers = peers)
+                    val nowMs = System.currentTimeMillis()
+                    val seen = if (np == null) s.wsubSeen else s.wsubSeen + (np.slot to (s.wsubSeen[np.slot] ?: WsubSeen()).copy(statMs = nowMs))
+                    // riwayat fault sub: hanya bila slave melaporkan (flt ≥ 0); offline / slave lama → tutup sebagai "terputus"
+                    val inc = if (np == null) s.faultIncidents
+                    else if (np.flt >= 0) FaultIncidents.update(s.faultIncidents, "s${np.slot}", np.fltKeys.toSet(), nowMs).list
+                    else FaultIncidents.closeTruncated(s.faultIncidents, "s${np.slot}").list
+                    s.copy(wsub = newWsub, wsubTrend = trend, wsubSeen = seen, faultIncidents = inc)
+                }
+                persistIncidents()
+            }
+            is Rx.WsubTimingLine -> _ui.update { it.copy(wsubTiming = rx.t) }
+            is Rx.WsubDiagLine -> _ui.update { s ->
+                val cur = s.wsub
+                if (cur == null) s
+                else {
+                    val np = cur.peers.firstOrNull { it.mac.equals(rx.mac, ignoreCase = true) }
+                    val seen = if (np == null) s.wsubSeen else s.wsubSeen + (np.slot to (s.wsubSeen[np.slot] ?: WsubSeen()).copy(diagMs = System.currentTimeMillis()))
+                    s.copy(
+                        wsub = cur.copy(peers = cur.peers.map { p -> if (p.mac.equals(rx.mac, ignoreCase = true)) p.copy(diag = rx.diag) else p }),
+                        wsubSeen = seen,
                     )
-                )
+                }
             }
             is Rx.WsubVoiceLine -> _ui.update { s ->
                 if (fresh("subvoice", 2000)) s else s.copy(subVoice = rx.v)   // jangan timpa slider yang sedang digeser
@@ -243,7 +280,9 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
             is Rx.WsubPeerLine -> _ui.update { s ->
                 val cur = s.wsub ?: WsubState()
                 val rest = cur.peers.filterNot { it.mac.equals(rx.peer.mac, ignoreCase = true) || it.slot == rx.peer.slot }
-                val merged = (rest + rx.peer).sortedBy { it.slot }.take(cur.maxPeers)
+                val old = cur.peers.firstOrNull { it.mac.equals(rx.peer.mac, ignoreCase = true) }
+                val np = if (old != null) rx.peer.copy(rxAudio = old.rxAudio, rxCtrl = old.rxCtrl, rej = old.rej, stx = old.stx, flt = old.flt, fcnt = old.fcnt, diag = old.diag, upS = old.upS, rst = old.rst, rssi = old.rssi) else rx.peer
+                val merged = (rest + np).sortedBy { it.slot }.take(cur.maxPeers)
                 s.copy(wsub = cur.copy(peers = merged))
             }
             is Rx.Fx -> _ui.update { s ->
@@ -272,6 +311,20 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
                     peakR = if (rx.r >= s.peakR) rx.r else (s.peakR - 12).coerceAtLeast(-1200),
                 )
             }
+            is Rx.WsubLevels -> _ui.update { s ->
+                val lvl = HashMap<Int, Int>()
+                val pk = HashMap<Int, Int>()
+                for ((slot, v) in rx.levels) {
+                    if (v == null) continue          // offline / slave lama: tanpa meter
+                    lvl[slot] = v
+                    val old = s.wsubPeak[slot] ?: -1200
+                    pk[slot] = if (v >= old) v else (old - 12).coerceAtLeast(-1200)
+                }
+                val nowMs = System.currentTimeMillis()
+                val seen = s.wsubSeen.toMutableMap()
+                for (slot in lvl.keys) seen[slot] = (seen[slot] ?: WsubSeen()).copy(lvlMs = nowMs)
+                s.copy(wsubLvl = lvl, wsubPeak = pk, wsubSeen = seen)
+            }
             is Rx.Level2 -> _ui.update { s ->
                 s.copy(
                     level2L = rx.l, level2R = rx.r,
@@ -281,7 +334,7 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
             }
             is Rx.Caps -> {
                 val v3 = rx.items.contains("v3")
-                _ui.update { it.copy(hasExt = rx.items.contains("v2") || v3, hasV3 = v3, hasLvl2 = rx.items.contains("lvl2")) }
+                _ui.update { it.copy(hasExt = rx.items.contains("v2") || v3, hasV3 = v3, hasLvl2 = rx.items.contains("lvl2"), hasWlvl = rx.items.contains("wlvl")) }
                 if (v3) client.send("dump")
             }
             is Rx.Dac -> _ui.update { it.copy(dac = rx.mode) }
@@ -311,19 +364,41 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
         _ui.update { it.copy(rttMs = rtt) }
     }
 
-    /** chip 1 = satelit (FAULT), chip 2 = sub (FAULT2). Kunci riwayat chip 2 diberi akhiran "@2". */
+    /** chip 1 = satelit (FAULT, sumber "sat"), chip 2 = sub kabel (FAULT2, sumber "chip2"). */
     private fun onFault(values: Map<String, Int>, chip: Int) {
+        val nowMs = System.currentTimeMillis()
         _ui.update { s ->
             val f1 = if (chip == 1) values else s.faults
             val f2 = if (chip == 2) values else s.faults2
-            val active = FAULT_DEFS.filter { (f1[it.key] ?: 0) != 0 }.map { it.key } +
-                FAULT_DEFS.filter { (f2[it.key] ?: 0) != 0 }.map { it.key + "@2" }
-            var hist = s.faultHistory
-            if (active.isNotEmpty() && hist.lastOrNull()?.keys != active) {
-                hist = (hist + FaultEvent(System.currentTimeMillis(), active)).takeLast(50)
-            }
-            s.copy(faults = f1, faults2 = f2, faultHistory = hist)
+            val active = FAULT_DEFS.filter { (values[it.key] ?: 0) != 0 }.map { it.key }.toSet()
+            s.copy(
+                faults = f1, faults2 = f2, faultsReadMs = nowMs,
+                faultIncidents = FaultIncidents.update(s.faultIncidents, if (chip == 1) "sat" else "chip2", active, nowMs).list,
+            )
         }
+        persistIncidents()
+    }
+
+    private fun incidentSig(list: List<FaultIncident>): Int =
+        list.map { Triple(it.startMs, it.endMs, it.count) }.hashCode() * 31 + list.size
+
+    /** Simpan riwayat fault hanya bila strukturnya berubah (mulai/berakhir/kambuh), bukan tiap pembaruan lastSeen. */
+    private fun persistIncidents() {
+        val list = _ui.value.faultIncidents
+        val sig = incidentSig(list)
+        if (sig == savedIncidentSig) return
+        savedIncidentSig = sig
+        store.saveFaultIncidents(list)
+    }
+
+    /** Ringkasan satu layar format "WIRELESS SUB DIAGNOSTIC". */
+    fun buildDiagSummary(): String = DiagSummary.build(_ui.value, System.currentTimeMillis())
+
+    /** Laporan diagnosa teks lengkap (status, slave, fault, log terakhir) untuk disalin/dibagikan. */
+    fun buildDiagReport(): String {
+        val app = getApplication<Application>()
+        val ver = try { app.packageManager.getPackageInfo(app.packageName, 0).versionName ?: "?" } catch (e: Exception) { "?" }
+        return DiagReport.build(_ui.value, ver, _log.value.takeLast(40), System.currentTimeMillis())
     }
 
     // ───────────────────────── kontrol dasar ─────────────────────────
@@ -546,6 +621,7 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
             it.copy(
                 peakL = it.levelL, peakR = it.levelR,
                 peak2L = it.level2L, peak2R = it.level2R,
+                wsubPeak = it.wsubLvl,
             )
         }
     }
@@ -617,8 +693,10 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
             while (isActive) {
                 if (_ui.value.hasExt) client.send("lvl", "lvl")
                 if (_ui.value.hasLvl2 && _ui.value.mode.isTwoChip) client.send("lvl2", "lvl2")
+                if (_ui.value.hasWlvl && _ui.value.wsub != null) client.send("wlvl", "wlvl")   // meter sub wireless (slave → master 4 Hz)
                 if (tick % 12 == 0) client.send("status", "status")
                 if (_ui.value.hasV3 && tick % 12 == 6) client.send("info", "info")
+                if (_ui.value.faultAuto && tick % 31 == 15) client.send("fault")   // ≈ 5 dtk
                 tick++
                 delay(160)
             }
@@ -632,7 +710,13 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun readFaults() { client.send("fault") }
 
-    fun clearFaultHistory() { _ui.update { it.copy(faultHistory = emptyList()) } }
+    fun clearFaultHistory() {
+        _ui.update { it.copy(faultIncidents = emptyList()) }
+        persistIncidents()
+    }
+
+    /** Pantau fault chip otomatis tiap 5 dtk selama tab Monitor terbuka (membaca fault juga meng-clear register chip — perilaku firmware). */
+    fun setFaultAuto(on: Boolean) { _ui.update { it.copy(faultAuto = on) } }
 
     fun ping() {
         pingSentAt = SystemClock.uptimeMillis()
