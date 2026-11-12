@@ -75,7 +75,9 @@ val FAULT_DEFS = listOf(
     FaultDef("ot_w", "Over-temp warning", false),
 )
 
-data class FaultEvent(val time: Long, val keys: List<String>)
+/** Bitmask fault slave (WSUBS flt=): bit n = FAULT_DEFS[n] (urutan sama dengan firmware wsub_fault.h). */
+fun faultKeysFromMask(mask: Int): List<String> =
+    FAULT_DEFS.filterIndexed { i, _ -> (mask shr i) and 1 != 0 }.map { it.key }
 
 data class TunerState(
     val mode: AudioMode = AudioMode.STEREO,
@@ -97,7 +99,9 @@ data class TunerState(
     val eq: EqState = EqState(),
     val faults: Map<String, Int> = emptyMap(),    // chip 1 (satelit)
     val faults2: Map<String, Int> = emptyMap(),   // chip 2 (sub), hanya 2-chip
-    val faultHistory: List<FaultEvent> = emptyList(),
+    val faultIncidents: List<FaultIncident> = emptyList(),   // riwayat fault: waktu mulai, durasi, jumlah (3.7.0)
+    val faultsReadMs: Long = 0,                               // kapan fault chip terakhir dibaca (0 = belum pernah) — "OK" tanpa pembacaan = status palsu
+    val faultAuto: Boolean = false,                           // pantau fault chip otomatis tiap 5 dtk (tab Monitor)
     val levelL: Int = -1200,   // deci-dB
     val levelR: Int = -1200,
     val peakL: Int = -1200,
@@ -107,6 +111,12 @@ data class TunerState(
     val peak2L: Int = -1200,
     val peak2R: Int = -1200,
     val hasLvl2: Boolean = false,
+    val hasWlvl: Boolean = false,                 // master mendukung `wlvl` (firmware ≥ 2.9.15)
+    val wsubLvl: Map<Int, Int> = emptyMap(),      // slot → level sub wireless (deci-dB); slot tidak ada = n/a
+    val wsubPeak: Map<Int, Int> = emptyMap(),     // slot → peak-hold (deci-dB)
+    val wsubTiming: WsubTimingInfo? = null,                    // basis/perintah latensi dari master (WSUBT)
+    val wsubSeen: Map<Int, WsubSeen> = emptyMap(),             // slot → waktu terakhir STATUS/DIAG/level diterima
+    val wsubTrend: Map<Int, List<WsubTrendPt>> = emptyMap(),   // slot → tren (maks 90 titik ≈ 3 menit)
     val hasExt: Boolean = false, // firmware v2 (eqband/eqdump/lvl)
     val hasV3: Boolean = false,  // firmware v3 (readback DAC/mod/clip, simpan NVS, info)
     val dac: String? = null,     // "btl" | "pbtl" (chip 1)
@@ -133,7 +143,8 @@ data class TunerState(
     fun fault1(key: String): Boolean = (faults[key] ?: 0) != 0
     fun fault2(key: String): Boolean = (faults2[key] ?: 0) != 0
     fun faultActive(key: String): Boolean = fault1(key) || fault2(key)
-    val anyFault: Boolean get() = FAULT_DEFS.any { faultActive(it.key) }
+    val wsubFault: Boolean get() = wsub?.peers?.any { it.flt > 0 } == true
+    val anyFault: Boolean get() = FAULT_DEFS.any { faultActive(it.key) } || wsubFault
 }
 
 data class LogEntry(val time: Long, val dir: Char, val text: String) // dir: '>' TX, '<' RX, '!' info
@@ -153,7 +164,58 @@ data class WsubPeer(
     val rxCtrl: Int = -1,    // paket kontrol per detik (normal ≈ 10)
     val rej: Int = 0,        // paket ditolak (MAC bukan master)
     val stx: Int = 0,        // kegagalan kirim STATUS dari slave
+    /** Fault amp slave (firmware slave ≥ 2.9.15): bitmask FAULT_DEFS; -1 = tidak tersedia (slave lama / offline). */
+    val flt: Int = -1,
+    val fcnt: Int = 0,       // jumlah kejadian fault sejak boot slave
+    val diag: WsubDiag? = null,   // baris WSUBD (jitter & versi) — firmware ≥ 2.9.10
+    /** Firmware slave ≥ 2.9.16: uptime (detik), alasan reset terakhir (esp_reset_reason), RSSI (dBm, 0 = n/a). */
+    val upS: Int = -1,
+    val rst: Int = -1,
+    val rssi: Int = 0,
+) {
+    val fltKeys: List<String> get() = if (flt > 0) faultKeysFromMask(flt) else emptyList()
+}
+
+/** Alasan reset ESP32 (esp_reset_reason_t) untuk tampilan. */
+fun resetReasonLabel(code: Int): String = when (code) {
+    1 -> "power-on"
+    2 -> "reset eksternal"
+    3 -> "restart software"
+    4 -> "crash (panic)"
+    5 -> "watchdog interrupt"
+    6 -> "watchdog task"
+    7 -> "watchdog"
+    8 -> "deep sleep"
+    9 -> "brownout (tegangan drop)"
+    10 -> "SDIO"
+    else -> "tidak diketahui"
+}
+
+/** Reset yang menandakan masalah (crash / watchdog / brownout), bukan power-on atau restart yang disengaja. */
+fun isAbnormalReset(code: Int): Boolean = code == 4 || code == 5 || code == 6 || code == 7 || code == 9
+
+/** Waktu latensi dari master (WSUBT): basis = latensi satelit + trim; cmd = yang sedang diperintahkan ke slave (basis + tambahan otomatis). */
+data class WsubTimingInfo(val latBase: Int, val latCmd: Int, val extraMax: Int, val aligned: Boolean)
+
+/** Diagnostik jitter/buffer satu slave (baris WSUBD, relay lewat master). */
+data class WsubDiag(
+    val fw: Int = 0,                 // patch firmware slave (2.9.<n>); 0 = ?
+    val gaps: List<Int> = emptyList(),   // jumlah gap kedatangan audio > 40/60/80/100/200/500 ms (kumulatif, wrap 16 bit)
+    val gmaxMs: Int = 0,             // gap terbesar sejak DIAG sebelumnya
+    val estMs: Float = 0f,           // perkiraan jitter
+    val needMs: Float = 0f,          // latensi yang diminta jitter slave; 0 = slave lama
+    val fillMinMs: Float = -1f,      // isi buffer minimum; -1 = n/a
+    val adapt: Int = 0,
+    val jmax: Int = 0,
+    val pkt: Int = 0,
+    val ageMs: Int = 0,              // umur data di master
 )
+
+/** Kapan data tiap slave terakhir diterima (ms epoch) — dasar validasi "data basi". */
+data class WsubSeen(val statMs: Long = 0, val diagMs: Long = 0, val lvlMs: Long = 0)
+
+/** Satu titik tren per slave (diambil tiap baris WSUBS ≈ 2 dtk). */
+data class WsubTrendPt(val t: Long, val fill: Int, val rx: Int, val und: Int, val gap: Int, val lvl: Int?, val up: Int = -1, val rssi: Int = 0)
 
 /** Status sub wireless — multi-sub hingga [maxPeers] (default 4).
  *  Kompatibel firmware lama: satu `peer` saja → [peers] berisi 0..1 entri.
@@ -187,6 +249,7 @@ data class WsubState(
     val heapMin: Long = 0,     // heap internal terendah sejak boot (byte)
     val ch: Int = 0,           // channel Wi-Fi master
     val diag: Boolean = false, // firmware mengirim diagnostik
+    val mfw: Int = 0,          // patch firmware master (2.9.<n>); 0 = master lama
 ) {
     /** Firmware single-peer lama / peer pertama. */
     val peer: String? get() = peers.firstOrNull()?.mac

@@ -307,6 +307,33 @@ class Store(ctx: Context) {
 
     fun delete(id: String) = savePresets(_presets.value.filterNot { it.id == id })
 
+    // Riwayat fault (3.7.0): disimpan agar tetap ada setelah app ditutup.
+    fun loadFaultIncidents(): List<FaultIncident> = try {
+        val a = JSONArray(sp.getString("fault_incidents", "[]"))
+        List(a.length()) { i ->
+            val o = a.getJSONObject(i)
+            FaultIncident(
+                source = o.getString("src"), key = o.getString("key"),
+                startMs = o.getLong("t0"), lastSeenMs = o.getLong("t1"),
+                endMs = if (o.has("t2")) o.getLong("t2") else null,
+                count = o.optInt("n", 1), truncated = o.optBoolean("tr", false),
+            )
+        }
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    fun saveFaultIncidents(list: List<FaultIncident>) {
+        val a = JSONArray()
+        list.takeLast(FaultIncidents.MAX).forEach { f ->
+            val o = JSONObject().put("src", f.source).put("key", f.key).put("t0", f.startMs).put("t1", f.lastSeenMs)
+                .put("n", f.count).put("tr", f.truncated)
+            f.endMs?.let { o.put("t2", it) }
+            a.put(o)
+        }
+        sp.edit().putString("fault_incidents", a.toString()).apply()
+    }
+
     fun exportJson(list: List<Preset>): String {
         val a = JSONArray()
         list.forEach { a.put(it.toJson()) }

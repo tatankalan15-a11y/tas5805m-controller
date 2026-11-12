@@ -24,9 +24,14 @@ sealed interface Rx {
     data class Fx(val inv: Boolean, val stby: Int, val sb: Boolean) : Rx   // polaritas sub, auto-standby
     data class EqC(val gains: List<Int>) : Rx   // EQ center (mode 3)
     data class Wsub(val state: WsubState) : Rx   // sub wireless (multi)
+    /** Baris WLVL (firmware ≥ 2.9.15): level meter per slot sub, deci-dB −1200..0; null = offline / slave lama / basi. */
+    data class WsubLevels(val levels: Map<Int, Int?>) : Rx
     data class WsubVoiceLine(val v: SubVoice) : Rx   // baris WSUBV (voicing sub)
     data class WsubPeerLine(val peer: WsubPeer) : Rx  // baris WSUBP per slot
-    data class WsubStat(val slot: Int, val mac: String, val rxAudio: Int, val rxCtrl: Int, val rej: Int, val stx: Int) : Rx  // baris WSUBS (diagnostik slave)
+    data class WsubStat(val slot: Int, val mac: String, val rxAudio: Int, val rxCtrl: Int, val rej: Int, val stx: Int, val flt: Int = -1, val fcnt: Int = 0, val up: Int = -1, val rst: Int = -1, val rssi: Int = 0) : Rx  // baris WSUBS (diagnostik slave)
+    /** Baris WSUBT dari master: basis latensi (satelit + trim), latensi yang sedang diperintahkan, batas tambahan otomatis. */
+    data class WsubTimingLine(val t: WsubTimingInfo) : Rx
+    data class WsubDiagLine(val slot: Int, val mac: String, val diag: WsubDiag) : Rx  // baris WSUBD (jitter, versi slave)
     data class EqS(val gains: List<Int>) : Rx   // EQ sub (mode 3)
     data object Pong : Rx
     data class Other(val text: String) : Rx
@@ -129,6 +134,7 @@ object Protocol {
                             heapMin = m["heapmin"]?.toLongOrNull() ?: 0L,
                             ch = num(m["ch"]) ?: 0,
                             diag = m.containsKey("ackok"),
+                            mfw = num(m["mfw"]) ?: 0,
                         )
                     )
                 }
@@ -144,7 +150,52 @@ object Protocol {
                         rxCtrl = num(m["rxc"]) ?: -1,
                         rej = num(m["rej"]) ?: 0,
                         stx = num(m["stx"]) ?: 0,
+                        flt = num(m["flt"]) ?: -1,
+                        fcnt = num(m["fcnt"]) ?: 0,
+                        up = num(m["up"]) ?: -1,
+                        rst = num(m["rst"]) ?: -1,
+                        rssi = num(m["rssi"]) ?: 0,
                     )
+                }
+                "WSUBT" -> {
+                    // WSUBT linked=1 lim=.. nomem=.. … latb=70 latc=95 aligned=1 extra_max=100
+                    val m = kv(rest)
+                    val latb = num(m["latb"])
+                    val latc = num(m["latc"])
+                    if (latb == null || latc == null) Rx.Other(line)
+                    else Rx.WsubTimingLine(WsubTimingInfo(latb, latc, num(m["extra_max"]) ?: 100, m["aligned"] == "1"))
+                }
+                "WSUBD" -> {
+                    // WSUBD slot=0 mac=AA:.. g40=1 g60=0 g80=0 g100=0 g200=0 g500=0 gmax=45 adapt=2 fmin=18 jmax=30 pkt=64 est=3.2 need=12.0 fw=2.9.15 fillmin=14.5 age=800
+                    val m = kv(rest)
+                    val mac = m["mac"]?.takeIf { it != "none" && it.isNotBlank() }
+                    if (mac == null) Rx.Other(line)
+                    else Rx.WsubDiagLine(
+                        slot = num(m["slot"]) ?: 0,
+                        mac = mac,
+                        diag = WsubDiag(
+                            fw = m["fw"]?.substringAfterLast('.')?.toIntOrNull() ?: 0,
+                            gaps = listOf("g40", "g60", "g80", "g100", "g200", "g500").map { num(m[it]) ?: 0 },
+                            gmaxMs = num(m["gmax"]) ?: 0,
+                            estMs = m["est"]?.toFloatOrNull() ?: 0f,
+                            needMs = m["need"]?.toFloatOrNull() ?: 0f,
+                            fillMinMs = m["fillmin"]?.toFloatOrNull() ?: -1f,
+                            adapt = num(m["adapt"]) ?: 0,
+                            jmax = num(m["jmax"]) ?: 0,
+                            pkt = num(m["pkt"]) ?: 0,
+                            ageMs = num(m["age"]) ?: 0,
+                        ),
+                    )
+                }
+                "WLVL" -> {
+                    // WLVL s0=-250 s1=na  (kunci = slot; "na" → null)
+                    val m = kv(rest)
+                    val out = HashMap<Int, Int?>()
+                    for ((k, v) in m) {
+                        val slot = if (k.length >= 2 && k[0] == 's') k.substring(1).toIntOrNull() else null
+                        if (slot != null) out[slot] = num(v)?.coerceIn(-1200, 0)
+                    }
+                    Rx.WsubLevels(out)
                 }
                 "WSUBV" -> {
                     // WSUBV on=1 hpf=32 pk=55 db=40 q=10 harm=40 lim=80
