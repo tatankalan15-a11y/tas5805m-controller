@@ -5,8 +5,8 @@ plugins {
 }
 
 // Versi bisa di-override dari CI: -PappVersionName=1.2.3 -PappVersionCode=12
-val appVersionName: String = (findProperty("appVersionName") as String?) ?: "3.4.0"
-val appVersionCode: Int = ((findProperty("appVersionCode") as String?) ?: "38").toInt()
+val appVersionName: String = (findProperty("appVersionName") as String?) ?: "3.8.0"
+val appVersionCode: Int = ((findProperty("appVersionCode") as String?) ?: "42").toInt()
 
 // Signing release hanya aktif jika env var keystore tersedia (GitHub Secrets).
 val ksPath: String? = System.getenv("KEYSTORE_PATH")
@@ -77,4 +77,5 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     debugImplementation("androidx.compose.ui:ui-tooling-preview")
+    testImplementation("junit:junit:4.13.2")
 }
