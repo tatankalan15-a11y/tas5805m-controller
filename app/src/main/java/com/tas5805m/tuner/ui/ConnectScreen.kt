@@ -39,6 +39,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,7 +65,11 @@ fun ConnectScreen(vm: TunerViewModel, snack: SnackbarHostState) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val adapterOn = BtUtil.adapter(ctx)?.isEnabled == true
 
+    // state, bukan panggilan langsung: UI harus recompose begitu izin diberikan (tanpa perlu tutup app)
+    var hasPerm by remember { mutableStateOf(BtUtil.hasPermission(ctx)) }
+
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        hasPerm = ok || BtUtil.hasPermission(ctx)
         if (ok) {
             vm.refreshDevices()
             vm.tryAutoConnect()
@@ -70,10 +77,13 @@ fun ConnectScreen(vm: TunerViewModel, snack: SnackbarHostState) {
     }
 
     LaunchedEffect(Unit) {
-        if (BtUtil.hasPermission(ctx)) vm.refreshDevices()
+        if (hasPerm) vm.refreshDevices()
         else permLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
     }
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { if (BtUtil.hasPermission(ctx)) vm.refreshDevices() }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        hasPerm = BtUtil.hasPermission(ctx)
+        if (hasPerm) vm.refreshDevices()
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -116,7 +126,7 @@ fun ConnectScreen(vm: TunerViewModel, snack: SnackbarHostState) {
                 }
             }
 
-            if (!BtUtil.hasPermission(ctx)) {
+            if (!hasPerm) {
                 SectionCard("Izin diperlukan") {
                     Text("Aplikasi butuh izin \"Perangkat di sekitar\" untuk membaca daftar perangkat Bluetooth yang sudah dipair.", style = MaterialTheme.typography.bodyMedium)
                     Button(onClick = { permLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT) }) { Text("Beri izin") }
