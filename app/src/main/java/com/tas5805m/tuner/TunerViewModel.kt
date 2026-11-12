@@ -234,7 +234,8 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
                              else rx.state.copy(peers = peers)
                 s.copy(wsub = merged)
             }
-            is Rx.WsubStat -> _ui.update { s ->
+            is Rx.WsubStat -> {
+            _ui.update { s ->
                 val cur = s.wsub
                 if (cur == null) s
                 else {
@@ -259,7 +260,8 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
                     else FaultIncidents.closeTruncated(s.faultIncidents, "s${np.slot}").list
                     s.copy(wsub = newWsub, wsubTrend = trend, wsubSeen = seen, faultIncidents = inc)
                 }
-                persistIncidents()
+            }
+            persistIncidents()   // di luar lambda update: lambda harus mengembalikan TunerState
             }
             is Rx.WsubTimingLine -> _ui.update { it.copy(wsubTiming = rx.t) }
             is Rx.WsubDiagLine -> _ui.update { s ->
