@@ -31,6 +31,7 @@ sealed interface Rx {
     data class WsubStat(val slot: Int, val mac: String, val rxAudio: Int, val rxCtrl: Int, val rej: Int, val stx: Int, val flt: Int = -1, val fcnt: Int = 0, val up: Int = -1, val rst: Int = -1, val rssi: Int = 0) : Rx  // baris WSUBS (diagnostik slave)
     /** Baris WSUBT dari master: basis latensi (satelit + trim), latensi yang sedang diperintahkan, batas tambahan otomatis. */
     data class WsubTimingLine(val t: WsubTimingInfo) : Rx
+    data class WsubCpuLine(val cpu: WsubCpu) : Rx   // baris WSUBC (beban CPU master)
     data class WsubDiagLine(val slot: Int, val mac: String, val diag: WsubDiag) : Rx  // baris WSUBD (jitter, versi slave)
     data class EqS(val gains: List<Int>) : Rx   // EQ sub (mode 3)
     data object Pong : Rx
@@ -184,8 +185,17 @@ object Protocol {
                             jmax = num(m["jmax"]) ?: 0,
                             pkt = num(m["pkt"]) ?: 0,
                             ageMs = num(m["age"]) ?: 0,
+                            cpu0 = num(m["cpu0"]) ?: -1,
+                            cpu1 = num(m["cpu1"]) ?: -1,
+                            pk0 = num(m["pk0"]) ?: -1,
+                            pk1 = num(m["pk1"]) ?: -1,
                         ),
                     )
+                }
+                "WSUBC" -> {
+                    // WSUBC cpu0=12 cpu1=30 pk0=25 pk1=61   (-1 = n/a)
+                    val m = kv(rest)
+                    Rx.WsubCpuLine(WsubCpu(num(m["cpu0"]) ?: -1, num(m["cpu1"]) ?: -1, num(m["pk0"]) ?: -1, num(m["pk1"]) ?: -1))
                 }
                 "WLVL" -> {
                     // WLVL s0=-250 s1=na  (kunci = slot; "na" → null)
@@ -203,8 +213,8 @@ object Protocol {
                     Rx.WsubVoiceLine(
                         SubVoice(
                             on = num(m["on"]) == 1,
-                            hpf = (num(m["hpf"]) ?: 32).coerceIn(20, 60),
-                            pkHz = (num(m["pk"]) ?: 55).coerceIn(30, 120),
+                            hpf = (num(m["hpf"]) ?: 32).coerceIn(20, 120),
+                            pkHz = (num(m["pk"]) ?: 55).coerceIn(30, 150),
                             pkDb10 = (num(m["db"]) ?: 0).coerceIn(-60, 90),
                             pkQ10 = (num(m["q"]) ?: 10).coerceIn(5, 30),
                             harm = (num(m["harm"]) ?: 0).coerceIn(0, 100),

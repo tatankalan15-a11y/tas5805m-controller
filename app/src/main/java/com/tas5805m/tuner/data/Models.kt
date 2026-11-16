@@ -114,6 +114,7 @@ data class TunerState(
     val hasWlvl: Boolean = false,                 // master mendukung `wlvl` (firmware ≥ 2.9.15)
     val wsubLvl: Map<Int, Int> = emptyMap(),      // slot → level sub wireless (deci-dB); slot tidak ada = n/a
     val wsubPeak: Map<Int, Int> = emptyMap(),     // slot → peak-hold (deci-dB)
+    val wsubCpu: WsubCpu? = null,                              // beban CPU master (WSUBC)
     val wsubTiming: WsubTimingInfo? = null,                    // basis/perintah latensi dari master (WSUBT)
     val wsubSeen: Map<Int, WsubSeen> = emptyMap(),             // slot → waktu terakhir STATUS/DIAG/level diterima
     val wsubTrend: Map<Int, List<WsubTrendPt>> = emptyMap(),   // slot → tren (maks 90 titik ≈ 3 menit)
@@ -209,7 +210,14 @@ data class WsubDiag(
     val jmax: Int = 0,
     val pkt: Int = 0,
     val ageMs: Int = 0,              // umur data di master
+    val cpu0: Int = -1,              // beban CPU slave core 0 (%, rata-rata ±5 dtk); -1 = n/a / slave lama
+    val cpu1: Int = -1,
+    val pk0: Int = -1,               // puncak cuplikan 1 dtk dalam 60 dtk terakhir
+    val pk1: Int = -1,
 )
+
+/** Beban CPU master (baris WSUBC): perkiraan dari idle task; core 0 = WiFi/Bluetooth, core 1 = audio/loop. -1 = n/a. */
+data class WsubCpu(val cpu0: Int, val cpu1: Int, val pk0: Int, val pk1: Int)
 
 /** Kapan data tiap slave terakhir diterima (ms epoch) — dasar validasi "data basi". */
 data class WsubSeen(val statMs: Long = 0, val diagMs: Long = 0, val lvlMs: Long = 0)
@@ -223,8 +231,8 @@ data class WsubTrendPt(val t: Long, val fill: Int, val rx: Int, val und: Int, va
 /** Voicing sub (firmware ≥ 2.9.14): HPF subsonic, boost parametrik, harmonik psikoakustik, limiter. */
 data class SubVoice(
     val on: Boolean = false,
-    val hpf: Int = 32,        // Hz, 20..60
-    val pkHz: Int = 55,       // Hz, 30..120
+    val hpf: Int = 32,        // Hz, 20..120
+    val pkHz: Int = 55,       // Hz, 30..150
     val pkDb10: Int = 0,      // ×10 dB, −60..+90
     val pkQ10: Int = 10,      // ×10, 5..30
     val harm: Int = 0,        // %, 0..100
