@@ -257,7 +257,15 @@ fun MonitorScreen(s: TunerState, vm: TunerViewModel) {
             if (i.isEmpty()) {
                 Text("Menunggu data…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
-                InfoLine("Sample rate terdeteksi", i["fs"] ?: "—")
+                val rate = i["rate"]?.toIntOrNull() ?: 0
+                if (rate > 0) InfoLine("Sample rate I2S (firmware)", "$rate Hz")
+                InfoLine(if (rate > 0) "Bacaan chip (FS_MON)" else "Sample rate terdeteksi", i["fs"] ?: "—")
+                if (rate == 44100 && i["fs"] == "48KHz") {
+                    Text(
+                        "Chip tidak punya kode 44,1 kHz di FS_MON, jadi 44,1 kHz terbaca \"48KHz\". Itu bukan masalah resampling.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 InfoLine("Rasio BCK", i["bck"] ?: "—")
                 InfoLine("Power state", (i["pwr"] ?: "—").replace('_', ' '))
                 InfoLine("Auto-mute L / R", "${if (i["mute_l"] == "1") "ya" else "tidak"} / ${if (i["mute_r"] == "1") "ya" else "tidak"}")

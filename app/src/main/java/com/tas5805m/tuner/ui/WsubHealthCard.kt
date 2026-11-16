@@ -91,6 +91,14 @@ fun WsubHealthCard(s: TunerState, vm: TunerViewModel) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        s.wsubCpu?.let {
+            CpuLine("master", it.cpu0, it.cpu1, it.pk0, it.pk1)
+            Text(
+                "Beban CPU = perkiraan dari idle task (termasuk Bluetooth/WiFi). CPU0 ≈ WiFi/Bluetooth, CPU1 ≈ audio. Di atas 75% waspada.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         w.peers.forEachIndexed { i, p ->
             val tr = s.wsubTrend[p.slot].orEmpty()
             PeerHealth(p, healths[i], tr, LatencyAdvisor.advise(p, tr, s.wsubTiming, now))
@@ -233,6 +241,23 @@ private fun Sparkline(values: List<Float>, lo: Float, hi: Float, color: Color) {
     }
 }
 
+/** Beban CPU ESP32 per core (perkiraan; merah ≥ 90%, kuning ≥ 75%). */
+@Composable
+private fun CpuLine(label: String, cpu0: Int, cpu1: Int, pk0: Int, pk1: Int) {
+    fun t(v: Int) = if (v in 0..100) "$v%" else "—"
+    val worst = maxOf(cpu0, cpu1)
+    val color = when {
+        worst >= 90 -> levelColor(HealthLevel.BAD)
+        worst >= 75 -> WarnAmber
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Text(
+        "Beban ESP32 $label: CPU0 ${t(cpu0)} (puncak ${t(pk0)}) · CPU1 ${t(cpu1)} (puncak ${t(pk1)})" + if (worst >= 75) " — tinggi" else "",
+        style = MaterialTheme.typography.labelSmall,
+        color = color,
+    )
+}
+
 /** Histogram gap kedatangan audio (penghitung kumulatif sejak boot slave) + angka jitter/versi. */
 @Composable
 private fun JitterBlock(d: WsubDiag) {
@@ -261,4 +286,5 @@ private fun JitterBlock(d: WsubDiag) {
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+    if (d.cpu0 >= 0 || d.cpu1 >= 0) CpuLine("slave", d.cpu0, d.cpu1, d.pk0, d.pk1)
 }
