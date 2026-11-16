@@ -111,7 +111,7 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
                 if (l == SppClient.Link.CONNECTED && prev != SppClient.Link.CONNECTED) onConnected()
                 if (l != SppClient.Link.CONNECTED) {
                     stopMonitor()
-                    _ui.update { it.copy(synced = false, hasExt = false, hasV3 = false, hasLvl2 = false, hasWlvl = false, wsubLvl = emptyMap(), wsubPeak = emptyMap(), wsubTrend = emptyMap(), wsubSeen = emptyMap(), wsubTiming = null, faultsReadMs = 0L, faultIncidents = FaultIncidents.closeTruncated(it.faultIncidents).list, wsub = null) }
+                    _ui.update { it.copy(synced = false, hasExt = false, hasV3 = false, hasLvl2 = false, hasWlvl = false, wsubLvl = emptyMap(), wsubPeak = emptyMap(), wsubTrend = emptyMap(), wsubSeen = emptyMap(), wsubTiming = null, wsubCpu = null, faultsReadMs = 0L, faultIncidents = FaultIncidents.closeTruncated(it.faultIncidents).list, wsub = null) }
                     persistIncidents()
                     // Putus tanpa diminta pengguna (ESP32 reboot / di luar jangkauan) → coba sambung ulang.
                     if (prev == SppClient.Link.CONNECTED && !manualDisc) scheduleReconnect()
@@ -264,6 +264,7 @@ class TunerViewModel(app: Application) : AndroidViewModel(app) {
             persistIncidents()   // di luar lambda update: lambda harus mengembalikan TunerState
             }
             is Rx.WsubTimingLine -> _ui.update { it.copy(wsubTiming = rx.t) }
+            is Rx.WsubCpuLine -> _ui.update { it.copy(wsubCpu = rx.cpu) }
             is Rx.WsubDiagLine -> _ui.update { s ->
                 val cur = s.wsub
                 if (cur == null) s
